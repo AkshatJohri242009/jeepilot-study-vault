@@ -9,6 +9,11 @@ const DATA_DIR = path.join(ROOT, "data");
 const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
 const DB_FILE = path.join(DATA_DIR, "db.json");
 const PORT = Number(process.env.PORT || 4173);
+const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET || "study-files";
+const SUPABASE_STATE_ID = process.env.SUPABASE_STATE_ID || "default";
+const USE_SUPABASE = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
 
 const defaultDb = {
   settings: {
@@ -86,13 +91,121 @@ function ensureStore() {
   }
 }
 
-function readDb() {
+function localReadDb() {
   ensureStore();
   return JSON.parse(fs.readFileSync(DB_FILE, "utf8"));
 }
 
-function writeDb(db) {
+function localWriteDb(db) {
   fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+}
+
+function mergeState(saved) {
+  return {
+    ...defaultDb,
+    ...saved,
+    settings: { ...defaultDb.settings, ...(saved.settings || {}) },
+    stats: { ...defaultDb.stats, ...(saved.stats || {}) },
+    files: saved.files || []
+  };
+}
+
+function supabaseHeaders(extra = {}) {
+  return {
+    apikey: SUPABASE_SERVICE_ROLE_KEY,
+    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+    ...extra
+  };
+}
+
+async function supabaseJson(pathname, options = {}) {
+  const response = await fetch(`${SUPABASE_URL}${pathname}`, {
+    ...options,
+    headers: supabaseHeaders(options.headers || {})
+  });
+  const text = await response.text();
+  const payload = text ? JSON.parse(text) : null;
+  if (!response.ok) {
+    const message = payload?.message || payload?.error || response.statusText;
+    throw new Error(`Supabase ${response.status}: ${message}`);
+  }
+  return payload;
+}
+
+async function readDb() {
+  if (!USE_SUPABASE) return localReadDb();
+  const rows = await supabaseJson(`/rest/v1/study_states?id=eq.${encodeURIComponent(SUPABASE_STATE_ID)}&select=payload&limit=1`);
+  if (!rows.length) {
+    await writeDb(defaultDb);
+    return defaultDb;
+  }
+  return mergeState(rows[0].payload || {});
+}
+
+async function writeDb(db) {
+  if (!USE_SUPABASE) return localWriteDb(db);
+  await supabaseJson(`/rest/v1/study_states?on_conflict=id`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Prefer: "resolution=merge-duplicates,return=minimal"
+    },
+    body: JSON.stringify([{ id: SUPABASE_STATE_ID, payload: db }])
+  });
+}
+
+async function uploadStoredFile(storedName, body, type) {
+  if (!USE_SUPABASE) {
+    const filePath = path.join(DATA_DIR, storedName);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, body);
+    return;
+  }
+  const storagePath = storedName.split("/").map(encodeURIComponent).join("/");
+  const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}/${storagePath}`, {
+    method: "POST",
+    headers: supabaseHeaders({
+      "Content-Type": type,
+      "cache-control": "3600"
+    }),
+    body
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Supabase storage upload failed: ${text || response.statusText}`);
+  }
+}
+
+async function readStoredFile(storedName) {
+  if (!USE_SUPABASE) {
+    const filePath = path.join(DATA_DIR, storedName);
+    if (!fs.existsSync(filePath)) return null;
+    return fs.readFileSync(filePath);
+  }
+  const storagePath = storedName.split("/").map(encodeURIComponent).join("/");
+  const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}/${storagePath}`, {
+    headers: supabaseHeaders()
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`Supabase storage download failed: ${response.statusText}`);
+  return Buffer.from(await response.arrayBuffer());
+}
+
+async function deleteStoredFile(storedName) {
+  if (!USE_SUPABASE) {
+    const filePath = path.join(DATA_DIR, storedName);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    return;
+  }
+  const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}`, {
+    method: "DELETE",
+    headers: supabaseHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ prefixes: [storedName] })
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Supabase storage delete failed: ${text || response.statusText}`);
+  }
 }
 
 function send(res, status, payload, headers = {}) {
@@ -173,39 +286,40 @@ function serveStatic(req, res) {
 
 async function handleApi(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  const db = readDb();
+  const db = await readDb();
 
   if (req.method === "GET" && url.pathname === "/api/state") return sendJson(res, 200, db);
 
   if (req.method === "POST" && url.pathname === "/api/state") {
     const next = await parseBody(req);
-    writeDb({ ...db, ...next });
-    return sendJson(res, 200, readDb());
+    await writeDb({ ...db, ...next });
+    return sendJson(res, 200, await readDb());
   }
 
   if (req.method === "POST" && url.pathname === "/api/upload") {
     const chunks = [];
     req.on("data", (chunk) => chunks.push(chunk));
-    req.on("end", () => {
+    req.on("end", async () => {
       try {
         const parts = parseMultipart(Buffer.concat(chunks), req.headers["content-type"] || "");
         const filePart = parts.find((part) => /name="file"/.test(part.headers));
         if (!filePart) return sendJson(res, 400, { error: "No file provided" });
         const filenameMatch = filePart.headers.match(/filename="([^"]+)"/);
         const originalName = safeName(filenameMatch ? filenameMatch[1] : "study-file.bin");
-        const storedName = `${Date.now()}-${crypto.randomBytes(5).toString("hex")}-${originalName}`;
-        fs.writeFileSync(path.join(UPLOAD_DIR, storedName), filePart.body);
-        const updated = readDb();
+        const type = (filePart.headers.match(/Content-Type: ([^\r\n]+)/i) || [])[1] || "application/octet-stream";
+        const storedName = `uploads/${Date.now()}-${crypto.randomBytes(5).toString("hex")}-${originalName}`;
+        await uploadStoredFile(storedName, filePart.body, type);
+        const updated = await readDb();
         const record = {
           id: crypto.randomUUID(),
           name: originalName,
           storedName,
           size: filePart.body.length,
-          type: (filePart.headers.match(/Content-Type: ([^\r\n]+)/i) || [])[1] || "application/octet-stream",
+          type,
           uploadedAt: new Date().toISOString()
         };
         updated.files.unshift(record);
-        writeDb(updated);
+        await writeDb(updated);
         sendJson(res, 201, record);
       } catch (error) {
         sendJson(res, 500, { error: error.message });
@@ -218,9 +332,9 @@ async function handleApi(req, res) {
     const id = url.pathname.split("/").pop();
     const file = db.files.find((item) => item.id === id);
     if (!file) return send(res, 404, "Not found");
-    const filePath = path.join(UPLOAD_DIR, file.storedName);
-    if (!fs.existsSync(filePath)) return send(res, 404, "Missing upload");
-    return send(res, 200, fs.readFileSync(filePath), {
+    const bytes = await readStoredFile(file.storedName);
+    if (!bytes) return send(res, 404, "Missing upload");
+    return send(res, 200, bytes, {
       "Content-Type": file.type,
       "Content-Disposition": `attachment; filename="${file.name.replace(/"/g, "")}"`
     });
@@ -229,12 +343,9 @@ async function handleApi(req, res) {
   if (req.method === "DELETE" && url.pathname.startsWith("/api/files/")) {
     const id = url.pathname.split("/").pop();
     const file = db.files.find((item) => item.id === id);
-    if (file) {
-      const filePath = path.join(UPLOAD_DIR, file.storedName);
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    }
+    if (file) await deleteStoredFile(file.storedName);
     db.files = db.files.filter((item) => item.id !== id);
-    writeDb(db);
+    await writeDb(db);
     return sendJson(res, 200, db.files);
   }
 

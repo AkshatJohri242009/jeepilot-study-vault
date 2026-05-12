@@ -155,18 +155,25 @@ const views = {
   dashboard() {
     const totals = getTotals();
     return `
-      <section class="page-head">
-        <span class="eyebrow">Cockpit</span>
-        <h1>Hello,<br>${escapeHtml(state.settings.name)}.<br><span class="small">Let's fly.</span></h1>
+      <section class="page-head dashboard-hero">
+        <div class="flight-radar" aria-hidden="true">
+          <div class="radar-grid"></div>
+          <div class="radar-route"></div>
+        </div>
+        <div>
+          <span class="eyebrow">Cockpit</span>
+          <h1>Hello,<br>${escapeHtml(state.settings.name)}.<br><span class="small">Let's fly.</span></h1>
+          <p>Tap a card or graph to jump straight into the panel that controls it.</p>
+        </div>
       </section>
       <section class="grid four">
-        <div class="panel metric"><span>Files stored</span><strong>${state.files.length}</strong></div>
-        <div class="panel metric"><span>Average syllabus</span><strong>${totals.chapterPercent}%</strong></div>
-        <div class="panel metric"><span>Questions done</span><strong>${totals.questions}</strong></div>
-        <div class="panel metric"><span>Hours last 7 days</span><strong>${Math.round(totals.weekMinutes / 60)}</strong></div>
+        <button class="panel metric dash-link" data-dashboard-link="files"><span>Files stored</span><strong>${state.files.length}</strong><em>Open vault</em></button>
+        <button class="panel metric dash-link" data-dashboard-link="chapters"><span>Average syllabus</span><strong>${totals.chapterPercent}%</strong><em>Update chapters</em></button>
+        <button class="panel metric dash-link" data-dashboard-link="stats"><span>Questions done</span><strong>${totals.questions}</strong><em>Log practice</em></button>
+        <button class="panel metric dash-link" data-dashboard-link="timers"><span>Hours last 7 days</span><strong>${Math.round(totals.weekMinutes / 60)}</strong><em>Start timer</em></button>
       </section>
       <section class="grid two" style="margin-top:18px">
-        <div class="panel">
+        <div class="panel dashboard-panel" data-dashboard-link="planner">
           <h2>Attempt countdowns</h2>
           <div class="countdown-list">${renderCountdowns()}</div>
           <form id="examDateForm" class="form-grid three-cols" style="margin-top:18px">
@@ -180,11 +187,11 @@ const views = {
           <h2>Study activity: last three months</h2>
           ${renderHeatmap()}
         </div>
-        <div class="panel">
+        <div class="panel dashboard-panel" data-dashboard-link="stats">
           <h2>Marks trend</h2>
           <canvas class="chart" id="marksChart" width="680" height="260"></canvas>
         </div>
-        <div class="panel">
+        <div class="panel dashboard-panel" data-dashboard-link="stats">
           <h2>Daily study hours</h2>
           <canvas class="chart" id="hoursChart" width="680" height="260"></canvas>
         </div>
@@ -508,6 +515,12 @@ function bindGlobal() {
 }
 
 function bindDashboard() {
+  $$("[data-dashboard-link]").forEach((item) => item.addEventListener("click", (event) => {
+    if (event.target.closest("form, input, select, textarea, button:not(.dash-link)")) return;
+    activeView = item.dataset.dashboardLink;
+    render();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }));
   $("#examDateForm")?.addEventListener("submit", (event) => {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(event.target));
