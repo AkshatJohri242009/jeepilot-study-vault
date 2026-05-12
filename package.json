@@ -1,0 +1,10 @@
+{
+  "name": "jeepilot-study-vault",
+  "version": "1.0.0",
+  "description": "A fullstack JEE study cockpit with files, planning, timers, chapters, stats, and progress tracking.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "license": "MIT"
+}

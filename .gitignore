@@ -1,0 +1,10 @@
+node_modules/
+.env
+.DS_Store
+Thumbs.db
+
+# Local study data generated while using the app.
+data/db.json
+data/uploads/*
+!data/uploads/.gitkeep
+
