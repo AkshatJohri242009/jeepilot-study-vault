@@ -42,6 +42,7 @@ body {
     var(--bg);
   background-attachment: fixed;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 15px;
 }
 
 button,
@@ -99,7 +100,7 @@ button {
 
 .brand-name {
   margin: 0;
-  font-size: 1.34rem;
+  font-size: 1.18rem;
   line-height: 1;
   font-weight: 950;
   letter-spacing: 0;
@@ -110,8 +111,8 @@ button {
   margin-bottom: 6px;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.28em;
-  font-size: 0.76rem;
+  letter-spacing: 0.16em;
+  font-size: 0.72rem;
   font-weight: 700;
 }
 
@@ -131,7 +132,7 @@ button {
   gap: 16px;
   padding: 0 26px 0 22px;
   text-transform: uppercase;
-  letter-spacing: 0.26em;
+  letter-spacing: 0.14em;
   font-weight: 800;
   transition: background 160ms ease, color 160ms ease, transform 160ms ease, border-color 160ms ease;
 }
@@ -196,7 +197,7 @@ button {
   background: var(--panel-solid);
   color: var(--text);
   text-transform: uppercase;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.12em;
   font-weight: 800;
   padding: 0 16px;
   transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease, background 160ms ease;
@@ -280,6 +281,18 @@ button {
   box-shadow: var(--shadow);
 }
 
+.particle-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.hero-canvas {
+  opacity: 0.9;
+}
+
 body.dark .dashboard-hero {
   background:
     linear-gradient(120deg, rgba(20, 26, 35, 0.82), rgba(20, 26, 35, 0.48)),
@@ -355,9 +368,9 @@ body.dark .dashboard-hero {
 
 .page-head h1 {
   margin: 0;
-  font-size: clamp(2.7rem, 8vw, 5.5rem);
-  line-height: 0.88;
-  font-weight: 950;
+  font-size: clamp(2.15rem, 6.5vw, 4.75rem);
+  line-height: 0.95;
+  font-weight: 900;
   letter-spacing: 0;
 }
 
@@ -366,6 +379,55 @@ body.dark .dashboard-hero {
   color: var(--muted);
   font-size: 1rem;
   line-height: 1.7;
+}
+
+.auth-shell {
+  min-height: 100vh;
+  position: relative;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 18% 22%, rgba(11, 102, 228, 0.2), transparent 30%),
+    radial-gradient(circle at 82% 72%, rgba(19, 168, 117, 0.15), transparent 34%),
+    var(--bg);
+}
+
+.auth-panel {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 520px);
+  display: grid;
+  gap: 24px;
+  padding: clamp(24px, 5vw, 44px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(20, 26, 35, 0.72);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(24px);
+}
+
+.auth-panel h1 {
+  margin: 0;
+  font-size: clamp(2.4rem, 9vw, 4.2rem);
+  line-height: 0.95;
+}
+
+.auth-message {
+  margin: 0;
+  color: var(--red);
+  font-weight: 800;
+}
+
+.ghost-link {
+  width: fit-content;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  text-decoration: underline;
+  font-weight: 800;
 }
 
 .grid {
@@ -427,15 +489,15 @@ body.dark .dashboard-hero {
 
 .metric strong {
   display: block;
-  font-size: clamp(2.1rem, 6vw, 4.2rem);
+  font-size: clamp(1.85rem, 5vw, 3.6rem);
   line-height: 0.95;
-  font-weight: 950;
+  font-weight: 900;
 }
 
 .metric span {
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.14em;
   font-size: 0.78rem;
   font-weight: 800;
 }
@@ -486,7 +548,7 @@ body.dark .dashboard-hero {
 
 .countdown strong {
   display: block;
-  font-size: clamp(1.9rem, 5vw, 3.6rem);
+  font-size: clamp(1.7rem, 4.5vw, 3.1rem);
   line-height: 0.95;
   font-weight: 950;
 }
@@ -510,7 +572,7 @@ body.dark .dashboard-hero {
 .field label {
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.14em;
   font-size: 0.72rem;
   font-weight: 850;
 }
@@ -558,7 +620,7 @@ body.dark .dashboard-hero {
   background: transparent;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.13em;
   font-weight: 850;
 }
 
@@ -586,7 +648,7 @@ body.dark .dashboard-hero {
 .file-row.header {
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.12em;
   font-size: 0.72rem;
   font-weight: 850;
 }
@@ -694,7 +756,7 @@ body.dark .dashboard-hero {
   display: block;
   font-size: clamp(3rem, 10vw, 6.4rem);
   line-height: 0.9;
-  font-weight: 950;
+  font-weight: 900;
   font-variant-numeric: tabular-nums;
 }
 
@@ -775,7 +837,7 @@ body.dark .dashboard-hero {
 .table th {
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.12em;
   font-size: 0.72rem;
 }
 
@@ -788,7 +850,7 @@ body.dark .dashboard-hero {
   color: var(--muted);
   border: 1px solid var(--line);
   text-transform: uppercase;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.1em;
   font-size: 0.72rem;
   font-weight: 850;
 }

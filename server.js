@@ -8,16 +8,21 @@ const PUBLIC_DIR = path.join(ROOT, "public");
 const DATA_DIR = path.join(ROOT, "data");
 const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
 const DB_FILE = path.join(DATA_DIR, "db.json");
+const USERS_FILE = path.join(DATA_DIR, "users.json");
 const PORT = Number(process.env.PORT || 4173);
 const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET || "study-files";
 const SUPABASE_STATE_ID = process.env.SUPABASE_STATE_ID || "default";
 const USE_SUPABASE = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+const SESSION_COOKIE = "jeepilot_session";
+const SESSION_SECRET = process.env.APP_SESSION_SECRET || "local-dev-change-me";
+const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 14;
 
-const defaultDb = {
-  settings: {
-    name: "Admin",
+function freshDefaultDb(username = "pilot") {
+  return {
+    settings: {
+    name: username,
     darkMode: false,
     sidebarCollapsed: false,
     customAirports: [],
@@ -26,60 +31,22 @@ const defaultDb = {
       main2: "2027-04-02",
       advanced: "2027-05-24"
     }
-  },
-  chapters: [
-    { id: "ph-kin", subject: "Physics", name: "Kinematics", topicsTotal: 5, topicsDone: 2 },
-    { id: "ph-nlm", subject: "Physics", name: "Laws of Motion", topicsTotal: 6, topicsDone: 1 },
-    { id: "ph-wep", subject: "Physics", name: "Work, Energy & Power", topicsTotal: 5, topicsDone: 0 },
-    { id: "ch-atomic", subject: "Chemistry", name: "Atomic Structure", topicsTotal: 6, topicsDone: 2 },
-    { id: "ch-bonding", subject: "Chemistry", name: "Chemical Bonding", topicsTotal: 8, topicsDone: 3 },
-    { id: "ma-quad", subject: "Math", name: "Quadratic Equations", topicsTotal: 5, topicsDone: 4 },
-    { id: "ma-seq", subject: "Math", name: "Sequences & Series", topicsTotal: 7, topicsDone: 2 }
-  ],
-  plans: [
-    { id: "plan-1", date: todayIso(), title: "Revise Kinematics formulas", done: false, subject: "Physics" },
-    { id: "plan-2", date: todayIso(), title: "30 PYQs from Chemical Bonding", done: false, subject: "Chemistry" }
-  ],
-  objectives: [
-    { id: "obj-1", date: todayIso(), text: "Win the first 90 minutes: one hard topic before messages.", done: false }
-  ],
-  stats: {
-    mocks: [
-      { id: "mock-1", date: "2026-05-04", exam: "JEE Main Mock 01", marks: 166, physics: 52, chemistry: 58, math: 56, notes: "Lost marks in silly errors." },
-      { id: "mock-2", date: "2026-05-10", exam: "JEE Main Mock 02", marks: 184, physics: 60, chemistry: 62, math: 62, notes: "Better pacing." }
-    ],
-    questions: [
-      { id: "q-1", date: todayIso(), subject: "Physics", count: 25, correct: 19 },
-      { id: "q-2", date: todayIso(), subject: "Math", count: 18, correct: 12 }
-    ],
-    errors: [
-      { id: "err-1", date: todayIso(), subject: "Physics", chapter: "Kinematics", type: "Concept", note: "Relative velocity sign convention", fixed: false }
-    ],
-    sessions: seedSessions()
-  },
-  files: []
-};
+    },
+    chapters: [],
+    plans: [],
+    objectives: [],
+    stats: {
+      mocks: [],
+      questions: [],
+      errors: [],
+      sessions: []
+    },
+    files: []
+  };
+}
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
-}
-
-function seedSessions() {
-  const subjects = ["Physics", "Chemistry", "Math"];
-  const rows = [];
-  const now = new Date();
-  for (let i = 88; i >= 0; i -= 1) {
-    const d = new Date(now);
-    d.setDate(now.getDate() - i);
-    const active = i % 3 !== 0;
-    rows.push({
-      id: `session-${i}`,
-      date: d.toISOString().slice(0, 10),
-      subject: subjects[i % subjects.length],
-      minutes: active ? 35 + ((i * 17) % 150) : 0
-    });
-  }
-  return rows;
 }
 
 function ensureStore() {
@@ -87,25 +54,45 @@ function ensureStore() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
   if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify(defaultDb, null, 2));
+    fs.writeFileSync(DB_FILE, JSON.stringify(freshDefaultDb(), null, 2));
+  }
+  if (!fs.existsSync(USERS_FILE)) {
+    fs.writeFileSync(USERS_FILE, JSON.stringify([], null, 2));
   }
 }
 
-function localReadDb() {
+function userStateId(username) {
+  return `${SUPABASE_STATE_ID}:${username}`;
+}
+
+function localDbFile(username) {
+  return path.join(DATA_DIR, "users", username, "db.json");
+}
+
+function localReadDb(username) {
   ensureStore();
-  return JSON.parse(fs.readFileSync(DB_FILE, "utf8"));
+  const file = localDbFile(username);
+  if (!fs.existsSync(file)) {
+    const initial = freshDefaultDb(username);
+    localWriteDb(username, initial);
+    return initial;
+  }
+  return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
-function localWriteDb(db) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+function localWriteDb(username, db) {
+  const file = localDbFile(username);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(db, null, 2));
 }
 
-function mergeState(saved) {
+function mergeState(saved, username) {
+  const base = freshDefaultDb(username);
   return {
-    ...defaultDb,
+    ...base,
     ...saved,
-    settings: { ...defaultDb.settings, ...(saved.settings || {}) },
-    stats: { ...defaultDb.stats, ...(saved.stats || {}) },
+    settings: { ...base.settings, ...(saved.settings || {}) },
+    stats: { ...base.stats, ...(saved.stats || {}) },
     files: saved.files || []
   };
 }
@@ -132,25 +119,27 @@ async function supabaseJson(pathname, options = {}) {
   return payload;
 }
 
-async function readDb() {
-  if (!USE_SUPABASE) return localReadDb();
-  const rows = await supabaseJson(`/rest/v1/study_states?id=eq.${encodeURIComponent(SUPABASE_STATE_ID)}&select=payload&limit=1`);
+async function readDb(username) {
+  if (!USE_SUPABASE) return localReadDb(username);
+  const id = userStateId(username);
+  const rows = await supabaseJson(`/rest/v1/study_states?id=eq.${encodeURIComponent(id)}&select=payload&limit=1`);
   if (!rows.length) {
-    await writeDb(defaultDb);
-    return defaultDb;
+    const initial = freshDefaultDb(username);
+    await writeDb(username, initial);
+    return initial;
   }
-  return mergeState(rows[0].payload || {});
+  return mergeState(rows[0].payload || {}, username);
 }
 
-async function writeDb(db) {
-  if (!USE_SUPABASE) return localWriteDb(db);
+async function writeDb(username, db) {
+  if (!USE_SUPABASE) return localWriteDb(username, db);
   await supabaseJson(`/rest/v1/study_states?on_conflict=id`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Prefer: "resolution=merge-duplicates,return=minimal"
     },
-    body: JSON.stringify([{ id: SUPABASE_STATE_ID, payload: db }])
+    body: JSON.stringify([{ id: userStateId(username), payload: db }])
   });
 }
 
@@ -216,6 +205,116 @@ function send(res, status, payload, headers = {}) {
 
 function sendJson(res, status, payload) {
   send(res, status, payload, { "Content-Type": "application/json; charset=utf-8" });
+}
+
+function parseCookies(req) {
+  return Object.fromEntries((req.headers.cookie || "").split(";").filter(Boolean).map((part) => {
+    const [key, ...value] = part.trim().split("=");
+    return [key, decodeURIComponent(value.join("="))];
+  }));
+}
+
+function sign(value) {
+  return crypto.createHmac("sha256", SESSION_SECRET).update(value).digest("base64url");
+}
+
+function safeEqual(a, b) {
+  const left = Buffer.from(String(a));
+  const right = Buffer.from(String(b));
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function createSession(username) {
+  const payload = Buffer.from(JSON.stringify({
+    username,
+    exp: Date.now() + SESSION_MAX_AGE_SECONDS * 1000
+  })).toString("base64url");
+  return `${payload}.${sign(payload)}`;
+}
+
+function readSession(req) {
+  const token = parseCookies(req)[SESSION_COOKIE];
+  if (!token || !token.includes(".")) return null;
+  const [payload, signature] = token.split(".");
+  if (!safeEqual(signature, sign(payload))) return null;
+  try {
+    const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (!data.username || Date.now() > data.exp) return null;
+    return data.username;
+  } catch {
+    return null;
+  }
+}
+
+function setSessionCookie(req, res, username) {
+  const secure = req.headers["x-forwarded-proto"] === "https" ? "; Secure" : "";
+  res.setHeader("Set-Cookie", `${SESSION_COOKIE}=${encodeURIComponent(createSession(username))}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_MAX_AGE_SECONDS}${secure}`);
+}
+
+function clearSessionCookie(res) {
+  res.setHeader("Set-Cookie", `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+}
+
+function normalizeUsername(username) {
+  return String(username || "").trim().toLowerCase();
+}
+
+function validUsername(username) {
+  return /^[a-z0-9_.-]{3,32}$/.test(username);
+}
+
+function hashPassword(password, salt) {
+  return crypto.scryptSync(password, salt, 64).toString("hex");
+}
+
+function verifyPassword(password, salt, expected) {
+  const actual = Buffer.from(hashPassword(password, salt), "hex");
+  const target = Buffer.from(expected, "hex");
+  return actual.length === target.length && crypto.timingSafeEqual(actual, target);
+}
+
+function localUsers() {
+  ensureStore();
+  return JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+}
+
+function localWriteUsers(users) {
+  ensureStore();
+  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+}
+
+async function findUser(username) {
+  if (!USE_SUPABASE) return localUsers().find((user) => user.username === username) || null;
+  const rows = await supabaseJson(`/rest/v1/study_users?username=eq.${encodeURIComponent(username)}&select=username,password_hash,salt&limit=1`);
+  return rows[0] || null;
+}
+
+async function createUser(username, password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const password_hash = hashPassword(password, salt);
+  if (!USE_SUPABASE) {
+    const users = localUsers();
+    if (users.some((user) => user.username === username)) throw new Error("Username already exists");
+    users.push({ username, password_hash, salt, created_at: new Date().toISOString() });
+    localWriteUsers(users);
+    await writeDb(username, freshDefaultDb(username));
+    return;
+  }
+  await supabaseJson("/rest/v1/study_users", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify([{ username, password_hash, salt }])
+  });
+  await writeDb(username, freshDefaultDb(username));
+}
+
+async function requireUser(req, res) {
+  const username = readSession(req);
+  if (!username) {
+    sendJson(res, 401, { error: "Authentication required" });
+    return null;
+  }
+  return username;
 }
 
 function parseBody(req) {
@@ -286,14 +385,52 @@ function serveStatic(req, res) {
 
 async function handleApi(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  const db = await readDb();
+
+  if (req.method === "GET" && url.pathname === "/api/me") {
+    const username = readSession(req);
+    if (!username) return sendJson(res, 200, { authenticated: false });
+    return sendJson(res, 200, { authenticated: true, username });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/register") {
+    const body = await parseBody(req);
+    const username = normalizeUsername(body.username);
+    const password = String(body.password || "");
+    if (!validUsername(username)) return sendJson(res, 400, { error: "Use 3-32 letters, numbers, dots, dashes, or underscores." });
+    if (password.length < 8) return sendJson(res, 400, { error: "Password must be at least 8 characters." });
+    if (await findUser(username)) return sendJson(res, 409, { error: "Username already exists." });
+    await createUser(username, password);
+    setSessionCookie(req, res, username);
+    return sendJson(res, 201, { authenticated: true, username });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/login") {
+    const body = await parseBody(req);
+    const username = normalizeUsername(body.username);
+    const password = String(body.password || "");
+    const user = await findUser(username);
+    if (!user || !verifyPassword(password, user.salt, user.password_hash)) {
+      return sendJson(res, 401, { error: "Invalid username or password." });
+    }
+    setSessionCookie(req, res, username);
+    return sendJson(res, 200, { authenticated: true, username });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/logout") {
+    clearSessionCookie(res);
+    return sendJson(res, 200, { authenticated: false });
+  }
+
+  const username = await requireUser(req, res);
+  if (!username) return;
+  const db = await readDb(username);
 
   if (req.method === "GET" && url.pathname === "/api/state") return sendJson(res, 200, db);
 
   if (req.method === "POST" && url.pathname === "/api/state") {
     const next = await parseBody(req);
-    await writeDb({ ...db, ...next });
-    return sendJson(res, 200, await readDb());
+    await writeDb(username, { ...db, ...next });
+    return sendJson(res, 200, await readDb(username));
   }
 
   if (req.method === "POST" && url.pathname === "/api/upload") {
@@ -307,9 +444,9 @@ async function handleApi(req, res) {
         const filenameMatch = filePart.headers.match(/filename="([^"]+)"/);
         const originalName = safeName(filenameMatch ? filenameMatch[1] : "study-file.bin");
         const type = (filePart.headers.match(/Content-Type: ([^\r\n]+)/i) || [])[1] || "application/octet-stream";
-        const storedName = `uploads/${Date.now()}-${crypto.randomBytes(5).toString("hex")}-${originalName}`;
+        const storedName = `${username}/uploads/${Date.now()}-${crypto.randomBytes(5).toString("hex")}-${originalName}`;
         await uploadStoredFile(storedName, filePart.body, type);
-        const updated = await readDb();
+        const updated = await readDb(username);
         const record = {
           id: crypto.randomUUID(),
           name: originalName,
@@ -319,7 +456,7 @@ async function handleApi(req, res) {
           uploadedAt: new Date().toISOString()
         };
         updated.files.unshift(record);
-        await writeDb(updated);
+        await writeDb(username, updated);
         sendJson(res, 201, record);
       } catch (error) {
         sendJson(res, 500, { error: error.message });
@@ -345,7 +482,7 @@ async function handleApi(req, res) {
     const file = db.files.find((item) => item.id === id);
     if (file) await deleteStoredFile(file.storedName);
     db.files = db.files.filter((item) => item.id !== id);
-    await writeDb(db);
+    await writeDb(username, db);
     return sendJson(res, 200, db.files);
   }
 

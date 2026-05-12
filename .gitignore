@@ -5,6 +5,7 @@ Thumbs.db
 
 # Local study data generated while using the app.
 data/db.json
+data/users.json
+data/users/
 data/uploads/*
 !data/uploads/.gitkeep
-

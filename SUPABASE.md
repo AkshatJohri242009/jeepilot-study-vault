@@ -31,13 +31,19 @@ SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY
 SUPABASE_BUCKET=study-files
 SUPABASE_STATE_ID=default
+APP_SESSION_SECRET=GENERATE_A_LONG_RANDOM_SECRET
 ```
 
-Keep `SUPABASE_SERVICE_ROLE_KEY` private. It must only live in Render environment variables, never in frontend code.
+Keep `SUPABASE_SERVICE_ROLE_KEY` and `APP_SESSION_SECRET` private. They must only live in Render environment variables, never in frontend code.
+
+You can generate a session secret locally with:
+
+```powershell
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
 
 ## 4. Redeploy
 
 After adding variables, click Manual Deploy in Render.
 
 The app will keep using local `data/db.json` when these variables are missing, so local development still works without Supabase.
-

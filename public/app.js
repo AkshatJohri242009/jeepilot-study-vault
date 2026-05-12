@@ -41,6 +41,8 @@ const airports = [
 ].map(([code, city, country, lat, lon]) => ({ code, city, country, lat, lon }));
 
 let state = null;
+let currentUser = null;
+let authMode = "login";
 let activeView = "dashboard";
 let activeSubject = "Physics";
 let statsTab = "mocks";
@@ -64,14 +66,33 @@ function icon(pathData) {
 }
 
 async function boot() {
-  const res = await fetch("/api/state");
-  state = await res.json();
-  document.body.classList.toggle("dark", !!state.settings.darkMode);
+  const me = await fetch("/api/me");
+  const profile = await me.json();
+  if (!profile.authenticated) {
+    document.body.classList.add("dark");
+    renderAuth();
+    return;
+  }
+  currentUser = profile.username;
+  await loadState();
   render();
   countdownInterval = setInterval(updateCountdowns, 30000);
 }
 
+async function loadState() {
+  const res = await fetch("/api/state");
+  if (res.status === 401) {
+    state = null;
+    currentUser = null;
+    renderAuth();
+    return;
+  }
+  state = await res.json();
+  document.body.classList.toggle("dark", !!state.settings.darkMode);
+}
+
 function persist() {
+  if (!state) return;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
     await fetch("/api/state", {
@@ -80,6 +101,60 @@ function persist() {
       body: JSON.stringify(state)
     });
   }, 250);
+}
+
+function renderAuth(message = "") {
+  $("#app").innerHTML = `
+    <main class="auth-shell">
+      <canvas class="particle-canvas auth-canvas" data-particle-canvas></canvas>
+      <section class="auth-panel">
+        <div>
+          <span class="eyebrow">Access terminal</span>
+          <h1>${authMode === "login" ? "Sign in." : "Create account."}</h1>
+          <p class="small">Your vault, progress, uploads, and stats stay separated under your own username.</p>
+        </div>
+        <form id="authForm" class="field">
+          <label>Username</label>
+          <input name="username" autocomplete="username" placeholder="akshat" required>
+          <label>Password</label>
+          <input name="password" type="password" autocomplete="${authMode === "login" ? "current-password" : "new-password"}" placeholder="8+ characters" required>
+          ${message ? `<p class="auth-message">${escapeHtml(message)}</p>` : ""}
+          <button class="primary-btn" type="submit">${authMode === "login" ? "Sign In" : "Create Account"}</button>
+        </form>
+        <button class="ghost-link" data-auth-toggle>
+          ${authMode === "login" ? "New here? Create an account" : "Already have an account? Sign in"}
+        </button>
+      </section>
+    </main>
+  `;
+  bindAuth();
+  requestAnimationFrame(initParticleCanvases);
+}
+
+function bindAuth() {
+  $("[data-auth-toggle]")?.addEventListener("click", () => {
+    authMode = authMode === "login" ? "register" : "login";
+    renderAuth();
+  });
+  $("#authForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.target));
+    const res = await fetch(`/api/${authMode === "login" ? "login" : "register"}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    });
+    const payload = await res.json();
+    if (!res.ok) {
+      renderAuth(payload.error || "Something went wrong.");
+      return;
+    }
+    currentUser = payload.username;
+    await loadState();
+    activeView = "dashboard";
+    render();
+    if (!countdownInterval) countdownInterval = setInterval(updateCountdowns, 30000);
+  });
 }
 
 function allAirports() {
@@ -111,6 +186,7 @@ function render() {
     </div>
   `;
   bindGlobal();
+  requestAnimationFrame(initParticleCanvases);
   if (activeView === "dashboard" || activeView === "stats") requestAnimationFrame(drawCharts);
   if (activeView === "dashboard") updateCountdowns();
   if (activeView === "timers") updateTimerFace();
@@ -144,8 +220,8 @@ function renderSidebar() {
       </nav>
       <div class="account">
         <span class="eyebrow">Signed in</span>
-        <p class="email">admin@jeepilot.com</p>
-        <button class="outline-btn" type="button">Sign Out</button>
+        <p class="email">${escapeHtml(currentUser || state.settings.name)}</p>
+        <button class="outline-btn" type="button" data-logout>Sign Out</button>
       </div>
     </aside>
   `;
@@ -156,10 +232,7 @@ const views = {
     const totals = getTotals();
     return `
       <section class="page-head dashboard-hero">
-        <div class="flight-radar" aria-hidden="true">
-          <div class="radar-grid"></div>
-          <div class="radar-route"></div>
-        </div>
+        <canvas class="particle-canvas hero-canvas" data-particle-canvas aria-hidden="true"></canvas>
         <div>
           <span class="eyebrow">Cockpit</span>
           <h1>Hello,<br>${escapeHtml(state.settings.name)}.<br><span class="small">Let's fly.</span></h1>
@@ -203,7 +276,7 @@ const views = {
       <section class="page-head">
         <span class="eyebrow">Study Vault</span>
         <h1>Files.</h1>
-        <p>Store PDFs, notes, images, and question sets in this local vault. Uploads are saved by the backend in this project folder.</p>
+        <p>Store PDFs, notes, images, and question sets in your private vault. Uploads are saved under your account.</p>
       </section>
       <section class="grid two">
         <div class="panel">
@@ -449,9 +522,10 @@ function renderStatsTab() {
         <div class="field"><label>Date</label><input name="date" type="date" value="${todayIso()}" required></div>
         <div class="field"><label>Exam</label><input name="exam" value="JEE Main Mock" required></div>
         <div class="field"><label>Total marks</label><input name="marks" type="number" min="0" max="300" required></div>
+        <div class="field"><label>Remark</label><input name="notes" placeholder="Pacing, silly errors, next fix"></div>
         <button class="primary-btn" type="submit">Add Mock</button>
       </form>
-      ${table(["Date", "Exam", "Marks", "Notes"], state.stats.mocks.map((m) => [m.date, m.exam, m.marks, m.notes || ""]))}
+      ${table(["Date", "Exam", "Marks", "Remark"], state.stats.mocks.map((m) => [m.date, m.exam, m.marks, m.notes || ""]))}
     `;
   }
   if (statsTab === "questions") {
@@ -461,9 +535,11 @@ function renderStatsTab() {
         <div class="field"><label>Date</label><input name="date" type="date" value="${todayIso()}" required></div>
         <div class="field"><label>Subject</label><select name="subject">${subjects.map((s) => `<option>${s}</option>`).join("")}</select></div>
         <div class="field"><label>Count</label><input name="count" type="number" min="1" required></div>
+        <div class="field"><label>Correct</label><input name="correct" type="number" min="0" placeholder="Optional"></div>
+        <div class="field"><label>Remark</label><input name="remark" placeholder="Accuracy, chapter, source"></div>
         <button class="primary-btn" type="submit">Add Questions</button>
       </form>
-      ${table(["Date", "Subject", "Count", "Correct"], state.stats.questions.map((q) => [q.date, q.subject, q.count, q.correct || "-"]))}
+      ${table(["Date", "Subject", "Count", "Correct", "Remark"], state.stats.questions.map((q) => [q.date, q.subject, q.count, q.correct || "-", q.remark || ""]))}
     `;
   }
   return `
@@ -472,9 +548,10 @@ function renderStatsTab() {
       <div class="field"><label>Subject</label><select name="subject">${subjects.map((s) => `<option>${s}</option>`).join("")}</select></div>
       <div class="field"><label>Chapter</label><input name="chapter" placeholder="Chapter" required></div>
       <div class="field"><label>Error</label><input name="note" placeholder="What went wrong?" required></div>
+      <div class="field"><label>Remark</label><input name="remark" placeholder="Fix, source, or prevention rule"></div>
       <button class="primary-btn" type="submit">Track Error</button>
     </form>
-    ${table(["Date", "Subject", "Chapter", "Error", "Fixed"], state.stats.errors.map((e) => [e.date, e.subject, e.chapter, e.note, `<input type="checkbox" ${e.fixed ? "checked" : ""} data-toggle-error="${e.id}">`]))}
+    ${table(["Date", "Subject", "Chapter", "Error", "Remark", "Fixed"], state.stats.errors.map((e) => [e.date, e.subject, e.chapter, e.note, e.remark || "", `<input type="checkbox" ${e.fixed ? "checked" : ""} data-toggle-error="${e.id}">`]))}
   `;
 }
 
@@ -483,10 +560,16 @@ function table(headers, rows) {
     <div style="overflow:auto;margin-top:18px">
       <table class="table">
         <thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead>
-        <tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("")}</tbody>
+        <tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${safeTableCell(cell)}</td>`).join("")}</tr>`).join("")}</tbody>
       </table>
     </div>
   `;
+}
+
+function safeTableCell(cell) {
+  const value = String(cell ?? "");
+  if (value.startsWith("<input ")) return value;
+  return escapeHtml(value);
 }
 
 function bindGlobal() {
@@ -500,6 +583,15 @@ function bindGlobal() {
     s.settings.darkMode = !s.settings.darkMode;
     document.body.classList.toggle("dark", s.settings.darkMode);
   }));
+  $("[data-logout]")?.addEventListener("click", async () => {
+    await fetch("/api/logout", { method: "POST" });
+    state = null;
+    currentUser = null;
+    activeView = "dashboard";
+    authMode = "login";
+    stopAudio(false);
+    renderAuth();
+  });
   $("[data-mobile-menu]")?.addEventListener("click", (event) => {
     event.stopPropagation();
     document.body.classList.add("nav-open");
@@ -677,12 +769,12 @@ function bindStats() {
   $("#mockForm")?.addEventListener("submit", (event) => {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(event.target));
-    commit((s) => s.stats.mocks.push({ id: crypto.randomUUID(), ...data, marks: Number(data.marks), notes: "" }));
+    commit((s) => s.stats.mocks.push({ id: crypto.randomUUID(), ...data, marks: Number(data.marks), notes: data.notes || "" }));
   });
   $("#questionForm")?.addEventListener("submit", (event) => {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(event.target));
-    commit((s) => s.stats.questions.push({ id: crypto.randomUUID(), ...data, count: Number(data.count), correct: "" }));
+    commit((s) => s.stats.questions.push({ id: crypto.randomUUID(), ...data, count: Number(data.count), correct: data.correct || "", remark: data.remark || "" }));
   });
   $("#errorForm")?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -793,11 +885,17 @@ function drawCharts() {
 
 function drawLineChart(id, points, maxValue, label) {
   const canvas = document.getElementById(id);
-  if (!canvas || !points.length) return;
+  if (!canvas) return;
   const ctx = canvas.getContext("2d");
   const width = canvas.width;
   const height = canvas.height;
   ctx.clearRect(0, 0, width, height);
+  if (!points.length) {
+    ctx.fillStyle = getCss("--muted");
+    ctx.font = "700 18px sans-serif";
+    ctx.fillText("No data yet", 44, 118);
+    return;
+  }
   ctx.strokeStyle = getCss("--line");
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -910,6 +1008,138 @@ function getCss(name) {
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[ch]));
+}
+
+function initParticleCanvases() {
+  $$("[data-particle-canvas]").forEach((canvas) => {
+    if (canvas.dataset.ready) return;
+    canvas.dataset.ready = "true";
+    const ctx = canvas.getContext("2d");
+    const parent = canvas.parentElement;
+    const pointer = { x: 0, y: 0, active: false };
+    const particles = [];
+    const count = canvas.classList.contains("auth-canvas") ? 96 : 68;
+    for (let i = 0; i < count; i += 1) {
+      particles.push({
+        x: Math.random(),
+        y: Math.random(),
+        z: Math.random(),
+        vx: (Math.random() - 0.5) * 0.0009,
+        vy: (Math.random() - 0.5) * 0.0009
+      });
+    }
+
+    const resize = () => {
+      const rect = parent.getBoundingClientRect();
+      canvas.width = Math.max(1, Math.floor(rect.width * window.devicePixelRatio));
+      canvas.height = Math.max(1, Math.floor(rect.height * window.devicePixelRatio));
+      canvas.style.width = `${rect.width}px`;
+      canvas.style.height = `${rect.height}px`;
+      ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+    };
+
+    const move = (event) => {
+      const rect = canvas.getBoundingClientRect();
+      pointer.x = (event.clientX - rect.left) / rect.width;
+      pointer.y = (event.clientY - rect.top) / rect.height;
+      pointer.active = true;
+    };
+
+    const leave = () => {
+      pointer.active = false;
+    };
+
+    parent.addEventListener("pointermove", move);
+    parent.addEventListener("pointerleave", leave);
+    window.addEventListener("resize", resize);
+    resize();
+
+    const draw = () => {
+      if (!canvas.isConnected) return;
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      ctx.clearRect(0, 0, width, height);
+      const time = performance.now() * 0.00035;
+      const cx = pointer.active ? pointer.x : 0.5 + Math.cos(time) * 0.08;
+      const cy = pointer.active ? pointer.y : 0.5 + Math.sin(time) * 0.08;
+      const color = getCss("--blue") || "#0b66e4";
+      particles.forEach((p, index) => {
+        const dx = p.x - cx;
+        const dy = p.y - cy;
+        const dist = Math.max(0.001, Math.hypot(dx, dy));
+        const force = pointer.active ? Math.min(0.004, 0.00004 / dist) : 0;
+        p.vx += dx * force + Math.cos(time + index) * 0.00001;
+        p.vy += dy * force + Math.sin(time + index * 0.8) * 0.00001;
+        p.vx *= 0.985;
+        p.vy *= 0.985;
+        p.x = (p.x + p.vx + 1) % 1;
+        p.y = (p.y + p.vy + 1) % 1;
+      });
+
+      ctx.lineWidth = 1;
+      for (let i = 0; i < particles.length; i += 1) {
+        const a = particles[i];
+        const ax = a.x * width;
+        const ay = a.y * height;
+        for (let j = i + 1; j < particles.length; j += 1) {
+          const b = particles[j];
+          const bx = b.x * width;
+          const by = b.y * height;
+          const dist = Math.hypot(ax - bx, ay - by);
+          if (dist < 118) {
+            ctx.strokeStyle = `rgba(11, 102, 228, ${0.18 * (1 - dist / 118)})`;
+            ctx.beginPath();
+            ctx.moveTo(ax, ay);
+            ctx.lineTo(bx, by);
+            ctx.stroke();
+          }
+        }
+        const size = 1.8 + a.z * 2.2;
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.38 + a.z * 0.38;
+        ctx.beginPath();
+        ctx.arc(ax, ay, size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.globalAlpha = 0.24;
+      ctx.strokeStyle = getCss("--green") || "#13a875";
+      const t = performance.now() * 0.00055;
+      const centerX = width * (0.7 + (cx - 0.5) * 0.08);
+      const centerY = height * (0.42 + (cy - 0.5) * 0.08);
+      const r = Math.min(width, height) * 0.16;
+      drawTesseract(ctx, centerX, centerY, r, t + cx);
+      ctx.globalAlpha = 1;
+      requestAnimationFrame(draw);
+    };
+    draw();
+  });
+}
+
+function drawTesseract(ctx, cx, cy, r, angle) {
+  const points = [];
+  for (let i = 0; i < 16; i += 1) {
+    const x = i & 1 ? 1 : -1;
+    const y = i & 2 ? 1 : -1;
+    const z = i & 4 ? 1 : -1;
+    const w = i & 8 ? 1 : -1;
+    const rx = x * Math.cos(angle) - z * Math.sin(angle);
+    const rz = x * Math.sin(angle) + z * Math.cos(angle);
+    const ry = y * Math.cos(angle * 0.7) - w * Math.sin(angle * 0.7);
+    const scale = r / (2.8 - rz * 0.24 - w * 0.08);
+    points.push([cx + rx * scale, cy + ry * scale]);
+  }
+  for (let i = 0; i < 16; i += 1) {
+    for (let bit = 1; bit < 16; bit <<= 1) {
+      const j = i ^ bit;
+      if (i < j) {
+        ctx.beginPath();
+        ctx.moveTo(points[i][0], points[i][1]);
+        ctx.lineTo(points[j][0], points[j][1]);
+        ctx.stroke();
+      }
+    }
+  }
 }
 
 boot();

@@ -4,6 +4,13 @@ create table if not exists public.study_states (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.study_users (
+  username text primary key,
+  password_hash text not null,
+  salt text not null,
+  created_at timestamptz not null default now()
+);
+
 create or replace function public.set_study_states_updated_at()
 returns trigger
 language plpgsql
@@ -22,4 +29,4 @@ for each row
 execute function public.set_study_states_updated_at();
 
 alter table public.study_states enable row level security;
-
+alter table public.study_users enable row level security;
