@@ -34,112 +34,44 @@ body {
 
 .app-shell { display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; }
 
-.sidebar {
-  background: var(--glass);
-  backdrop-filter: blur(32px);
-  border-right: 1px solid var(--glass-border);
-  display: flex;
-  flex-direction: column;
-}
-
-.glass-panel, .audio-glass {
+.glass-panel {
   background: var(--glass);
   backdrop-filter: blur(32px);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius);
   padding: 28px;
-  box-shadow: 0 10px 30px -10px rgba(0,0,0,0.12);
-  animation: fadeInUp 0.6s ease forwards;
-}
-
-.audio-glass { backdrop-filter: blur(40px); padding: 26px; }
-
-.timer-face {
-  font-size: 6.2rem;
-  font-weight: 800;
-  letter-spacing: 10px;
-  text-align: center;
-  padding: 52px 20px;
-  background: rgba(255,255,255,0.45);
-  border: 5px solid var(--accent);
-  border-radius: 28px;
-  animation: pulse 6s infinite ease-in-out;
-}
-
-body.dark .timer-face { background: rgba(15,23,42,0.8); }
-
-@keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(40px) scale(0.95); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-@keyframes pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(59,130,246,0.4); }
-  50% { box-shadow: 0 0 0 35px rgba(59,130,246,0); }
-}
-
-.tab-btn {
-  width: 100%;
-  padding: 16px 28px;
-  border: none;
-  background: transparent;
-  color: var(--muted);
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  cursor: pointer;
-  border-radius: 14px;
-  margin: 4px 12px;
-  transition: all 0.3s ease;
-}
-.tab-btn.active, .tab-btn:hover {
-  background: rgba(59,130,246,0.15);
-  color: var(--accent);
-  transform: translateX(8px);
-}
-
-.btn-primary {
-  background: linear-gradient(135deg, #2563eb, #3b82f6);
-  color: white;
-  border: none;
-  padding: 13px 28px;
-  border-radius: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-.btn-primary:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 15px 30px rgba(59,130,246,0.4);
 }
 </style>
 </head>
 <body>
-<div id="app"></div>
+<div id="app">Loading Studypilot...</div>
 
 <script>
-const $ = (s, r = document) => r.querySelector(s);
-const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const $ = s => document.querySelector(s);
 
-const VAULTS = ["JEE", "NEET", "Boards"];
 let currentVault = "JEE";
 let activeView = "dashboard";
+let state = { chapters: [], exams: [], plans: [], formulas: [] };
 
-let state = null;
+async function loadState() {
+  try {
+    const res = await fetch("/api/state");
+    if (res.ok) state = await res.json();
+  } catch (e) {}
+  render();
+}
 
-let timer = { total: 45*60, remaining: 45*60, running: false };
-let timerInterval = null;
-let audio = { player: null, ctx: null };
+function render() {
+  $("#app").innerHTML = `
+    <div style="padding:40px">
+      <h1>Welcome to Studypilot</h1>
+      <p>Current Vault: <strong>${currentVault}</strong></p>
+      <button onclick="alert('Flight timer ready!')">Test Flight Timer</button>
+    </div>
+  `;
+}
 
-const airports = [
-  {code:"DEL", city:"Delhi", lat:28.5562, lon:77.1},
-  {code:"BOM", city:"Mumbai", lat:19.0896, lon:72.8656},
-  {code:"BLR", city:"Bengaluru", lat:13.1986, lon:77.7066},
-  {code:"MAA", city:"Chennai", lat:12.9941, lon:80.1709},
-  {code:"CCU", city:"Kolkata", lat:22.6547, lon:88.4467},
-  {code:"HYD", city:"Hyderabad", lat:17.2403, lon:78.4294},
-  {code:"DXB", city:"Dubai", lat:25.2532, lon:55.3657},
-  {code:"LHR", city:"London", lat:51.47, lon:-0.4543},
-  {code:"JFK", city:"New York", lat:40.6413, lon:-73.7781},
-  {code:"SIN", city:"Singapore", lat:1.3644,
+loadState();
+</script>
+</body>
+</html>
