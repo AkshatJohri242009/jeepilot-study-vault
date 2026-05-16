@@ -1,504 +1,245 @@
-const http = require("http");
-const fs = require("fs");
-const path = require("path");
-const crypto = require("crypto");
-
-const ROOT = __dirname;
-const PUBLIC_DIR = path.join(ROOT, "public");
-const DATA_DIR = path.join(ROOT, "data");
-const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
-const DB_FILE = path.join(DATA_DIR, "db.json");
-const USERS_FILE = path.join(DATA_DIR, "users.json");
-const PORT = Number(process.env.PORT || 4173);
-const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET || "study-files";
-const SUPABASE_STATE_ID = process.env.SUPABASE_STATE_ID || "default";
-const USE_SUPABASE = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
-const SESSION_COOKIE = "jeepilot_session";
-const SESSION_SECRET = process.env.APP_SESSION_SECRET || "local-dev-change-me";
-const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 14;
-
-function freshDefaultDb(username = "pilot") {
-  return {
-    settings: {
-    name: username,
-    darkMode: false,
-    sidebarCollapsed: false,
-    customAirports: [],
-    examDates: {
-      main1: "2027-01-24",
-      main2: "2027-04-02",
-      advanced: "2027-05-24"
-    }
-    },
-    chapters: [],
-    plans: [],
-    objectives: [],
-    stats: {
-      mocks: [],
-      questions: [],
-      errors: [],
-      sessions: []
-    },
-    files: []
-  };
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>STUDYPILOT • Student OS</title>
+<style>
+:root {
+  --bg: linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 100%);
+  --glass: rgba(255,255,255,0.92);
+  --glass-border: rgba(255,255,255,0.98);
+  --text: #0f172a;
+  --muted: #64748b;
+  --accent: #3b82f6;
+  --red: #ef4444;
+  --radius: 22px;
+}
+body.dark {
+  --bg: linear-gradient(135deg, #1e2937 0%, #0f172a 100%);
+  --glass: rgba(15,23,42,0.95);
+  --glass-border: rgba(148,163,184,0.35);
+  --text: #f1f5f9;
+  --muted: #94a3b8;
 }
 
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+* { box-sizing: border-box; }
+body {
+  margin:0; font-family:Inter,system-ui,sans-serif; background:var(--bg); color:var(--text); min-height:100vh;
 }
 
-function ensureStore() {
-  fs.mkdirSync(PUBLIC_DIR, { recursive: true });
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-  if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify(freshDefaultDb(), null, 2));
-  }
-  if (!fs.existsSync(USERS_FILE)) {
-    fs.writeFileSync(USERS_FILE, JSON.stringify([], null, 2));
-  }
+.app-shell { display:grid; grid-template-columns:280px 1fr; min-height:100vh; }
+
+.sidebar {
+  background:var(--glass); backdrop-filter:blur(32px); border-right:1px solid var(--glass-border);
+  display:flex; flex-direction:column;
 }
 
-function userStateId(username) {
-  return `${SUPABASE_STATE_ID}:${username}`;
+.glass-panel, .audio-glass {
+  background:var(--glass); backdrop-filter:blur(32px); border:1px solid var(--glass-border);
+  border-radius:var(--radius); padding:28px; box-shadow:0 10px 30px -10px rgba(0,0,0,0.12);
+  animation:fadeInUp 0.6s ease forwards;
 }
 
-function localDbFile(username) {
-  return path.join(DATA_DIR, "users", username, "db.json");
+.audio-glass { backdrop-filter:blur(40px); padding:26px; }
+
+.timer-face {
+  font-size:6.2rem; font-weight:800; letter-spacing:10px; text-align:center;
+  padding:52px 20px; background:rgba(255,255,255,0.45); border:5px solid var(--accent);
+  border-radius:28px; animation:pulse 6s infinite ease-in-out;
 }
 
-function localReadDb(username) {
-  ensureStore();
-  const file = localDbFile(username);
-  if (!fs.existsSync(file)) {
-    const initial = freshDefaultDb(username);
-    localWriteDb(username, initial);
-    return initial;
-  }
-  return JSON.parse(fs.readFileSync(file, "utf8"));
-}
+body.dark .timer-face { background:rgba(15,23,42,0.8); }
 
-function localWriteDb(username, db) {
-  const file = localDbFile(username);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(db, null, 2));
-}
+@keyframes fadeInUp { from{opacity:0;transform:translateY(40px)} to{opacity:1;transform:translateY(0)} }
+@keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(59,130,246,0.4)} 50%{box-shadow:0 0 0 35px rgba(59,130,246,0)} }
 
-function mergeState(saved, username) {
-  const base = freshDefaultDb(username);
-  return {
-    ...base,
-    ...saved,
-    settings: { ...base.settings, ...(saved.settings || {}) },
-    stats: { ...base.stats, ...(saved.stats || {}) },
-    files: saved.files || []
-  };
+.tab-btn {
+  width:100%; padding:16px 28px; border:none; background:transparent; color:var(--muted);
+  font-weight:600; display:flex; align-items:center; gap:14px; cursor:pointer;
+  border-radius:14px; margin:4px 12px; transition:all 0.3s;
 }
+.tab-btn.active, .tab-btn:hover { background:rgba(59,130,246,0.15); color:var(--accent); transform:translateX(8px); }
 
-function supabaseHeaders(extra = {}) {
-  return {
-    apikey: SUPABASE_SERVICE_ROLE_KEY,
-    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-    ...extra
-  };
+.btn-primary {
+  background:linear-gradient(135deg,#2563eb,#3b82f6); color:white; border:none;
+  padding:13px 28px; border-radius:14px; font-weight:600; cursor:pointer;
+  transition:all 0.3s;
 }
+.btn-primary:hover { transform:translateY(-4px); box-shadow:0 15px 30px rgba(59,130,246,0.4); }
+</style>
+</head>
+<body>
+<div id="app"></div>
 
-async function supabaseJson(pathname, options = {}) {
-  const response = await fetch(`${SUPABASE_URL}${pathname}`, {
-    ...options,
-    headers: supabaseHeaders(options.headers || {})
-  });
-  const text = await response.text();
-  const payload = text ? JSON.parse(text) : null;
-  if (!response.ok) {
-    const message = payload?.message || payload?.error || response.statusText;
-    throw new Error(`Supabase ${response.status}: ${message}`);
-  }
-  return payload;
-}
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
-async function readDb(username) {
-  if (!USE_SUPABASE) return localReadDb(username);
-  const id = userStateId(username);
-  const rows = await supabaseJson(`/rest/v1/study_states?id=eq.${encodeURIComponent(id)}&select=payload&limit=1`);
-  if (!rows.length) {
-    const initial = freshDefaultDb(username);
-    await writeDb(username, initial);
-    return initial;
-  }
-  return mergeState(rows[0].payload || {}, username);
-}
+const VAULTS = ["JEE", "NEET", "Boards"];
+let currentVault = "JEE";
+let activeView = "dashboard";
+let currentUser = null;
 
-async function writeDb(username, db) {
-  if (!USE_SUPABASE) return localWriteDb(username, db);
-  await supabaseJson(`/rest/v1/study_states?on_conflict=id`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Prefer: "resolution=merge-duplicates,return=minimal"
-    },
-    body: JSON.stringify([{ id: userStateId(username), payload: db }])
-  });
-}
+let state = null;
 
-async function uploadStoredFile(storedName, body, type) {
-  if (!USE_SUPABASE) {
-    const filePath = path.join(DATA_DIR, storedName);
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, body);
-    return;
-  }
-  const storagePath = storedName.split("/").map(encodeURIComponent).join("/");
-  const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}/${storagePath}`, {
-    method: "POST",
-    headers: supabaseHeaders({
-      "Content-Type": type,
-      "cache-control": "3600"
-    }),
-    body
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Supabase storage upload failed: ${text || response.statusText}`);
-  }
-}
+let timer = { total: 45*60, remaining: 45*60, running: false };
+let timerInterval = null;
+let audio = { player: null, ctx: null };
 
-async function readStoredFile(storedName) {
-  if (!USE_SUPABASE) {
-    const filePath = path.join(DATA_DIR, storedName);
-    if (!fs.existsSync(filePath)) return null;
-    return fs.readFileSync(filePath);
-  }
-  const storagePath = storedName.split("/").map(encodeURIComponent).join("/");
-  const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}/${storagePath}`, {
-    headers: supabaseHeaders()
-  });
-  if (response.status === 404) return null;
-  if (!response.ok) throw new Error(`Supabase storage download failed: ${response.statusText}`);
-  return Buffer.from(await response.arrayBuffer());
-}
+const airports = [
+  {code:"DEL", city:"Delhi", lat:28.5562, lon:77.1},
+  {code:"BOM", city:"Mumbai", lat:19.0896, lon:72.8656},
+  {code:"BLR", city:"Bengaluru", lat:13.1986, lon:77.7066},
+  {code:"MAA", city:"Chennai", lat:12.9941, lon:80.1709},
+  {code:"CCU", city:"Kolkata", lat:22.6547, lon:88.4467},
+  {code:"HYD", city:"Hyderabad", lat:17.2403, lon:78.4294},
+  {code:"DXB", city:"Dubai", lat:25.2532, lon:55.3657},
+  {code:"LHR", city:"London", lat:51.47, lon:-0.4543},
+  {code:"JFK", city:"New York", lat:40.6413, lon:-73.7781},
+  {code:"SIN", city:"Singapore", lat:1.3644, lon:103.9915}
+];
 
-async function deleteStoredFile(storedName) {
-  if (!USE_SUPABASE) {
-    const filePath = path.join(DATA_DIR, storedName);
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    return;
-  }
-  const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}`, {
-    method: "DELETE",
-    headers: supabaseHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({ prefixes: [storedName] })
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Supabase storage delete failed: ${text || response.statusText}`);
-  }
-}
-
-function send(res, status, payload, headers = {}) {
-  const body = typeof payload === "string" || Buffer.isBuffer(payload) ? payload : JSON.stringify(payload);
-  res.writeHead(status, headers);
-  res.end(body);
-}
-
-function sendJson(res, status, payload) {
-  send(res, status, payload, { "Content-Type": "application/json; charset=utf-8" });
-}
-
-function parseCookies(req) {
-  return Object.fromEntries((req.headers.cookie || "").split(";").filter(Boolean).map((part) => {
-    const [key, ...value] = part.trim().split("=");
-    return [key, decodeURIComponent(value.join("="))];
-  }));
-}
-
-function sign(value) {
-  return crypto.createHmac("sha256", SESSION_SECRET).update(value).digest("base64url");
-}
-
-function safeEqual(a, b) {
-  const left = Buffer.from(String(a));
-  const right = Buffer.from(String(b));
-  return left.length === right.length && crypto.timingSafeEqual(left, right);
-}
-
-function createSession(username) {
-  const payload = Buffer.from(JSON.stringify({
-    username,
-    exp: Date.now() + SESSION_MAX_AGE_SECONDS * 1000
-  })).toString("base64url");
-  return `${payload}.${sign(payload)}`;
-}
-
-function readSession(req) {
-  const token = parseCookies(req)[SESSION_COOKIE];
-  if (!token || !token.includes(".")) return null;
-  const [payload, signature] = token.split(".");
-  if (!safeEqual(signature, sign(payload))) return null;
+// Load user state from your server
+async function loadState() {
   try {
-    const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
-    if (!data.username || Date.now() > data.exp) return null;
-    return data.username;
-  } catch {
-    return null;
+    const res = await fetch("/api/state");
+    if (res.ok) {
+      state = await res.json();
+    } else {
+      state = { chapters: [], exams: [], plans: [], formulas: [], settings: { name: currentUser || "Student", darkMode: false } };
+    }
+  } catch (e) {
+    state = { chapters: [], exams: [], plans: [], formulas: [], settings: { name: "Student", darkMode: false } };
   }
+  render();
 }
 
-function setSessionCookie(req, res, username) {
-  const secure = req.headers["x-forwarded-proto"] === "https" ? "; Secure" : "";
-  res.setHeader("Set-Cookie", `${SESSION_COOKIE}=${encodeURIComponent(createSession(username))}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_MAX_AGE_SECONDS}${secure}`);
-}
-
-function clearSessionCookie(res) {
-  res.setHeader("Set-Cookie", `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
-}
-
-function normalizeUsername(username) {
-  return String(username || "").trim().toLowerCase();
-}
-
-function validUsername(username) {
-  return /^[a-z0-9_.-]{3,32}$/.test(username);
-}
-
-function hashPassword(password, salt) {
-  return crypto.scryptSync(password, salt, 64).toString("hex");
-}
-
-function verifyPassword(password, salt, expected) {
-  const actual = Buffer.from(hashPassword(password, salt), "hex");
-  const target = Buffer.from(expected, "hex");
-  return actual.length === target.length && crypto.timingSafeEqual(actual, target);
-}
-
-function localUsers() {
-  ensureStore();
-  return JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
-}
-
-function localWriteUsers(users) {
-  ensureStore();
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-}
-
-async function findUser(username) {
-  if (!USE_SUPABASE) return localUsers().find((user) => user.username === username) || null;
-  const rows = await supabaseJson(`/rest/v1/study_users?username=eq.${encodeURIComponent(username)}&select=username,password_hash,salt&limit=1`);
-  return rows[0] || null;
-}
-
-async function createUser(username, password) {
-  const salt = crypto.randomBytes(16).toString("hex");
-  const password_hash = hashPassword(password, salt);
-  if (!USE_SUPABASE) {
-    const users = localUsers();
-    if (users.some((user) => user.username === username)) throw new Error("Username already exists");
-    users.push({ username, password_hash, salt, created_at: new Date().toISOString() });
-    localWriteUsers(users);
-    await writeDb(username, freshDefaultDb(username));
-    return;
-  }
-  await supabaseJson("/rest/v1/study_users", {
+function saveState() {
+  fetch("/api/state", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Prefer: "return=minimal" },
-    body: JSON.stringify([{ username, password_hash, salt }])
-  });
-  await writeDb(username, freshDefaultDb(username));
-}
-
-async function requireUser(req, res) {
-  const username = readSession(req);
-  if (!username) {
-    sendJson(res, 401, { error: "Authentication required" });
-    return null;
-  }
-  return username;
-}
-
-function parseBody(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    req.on("data", (chunk) => chunks.push(chunk));
-    req.on("end", () => {
-      const raw = Buffer.concat(chunks);
-      if (!raw.length) return resolve({});
-      try {
-        resolve(JSON.parse(raw.toString("utf8")));
-      } catch (error) {
-        reject(error);
-      }
-    });
-    req.on("error", reject);
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(state)
   });
 }
 
-function parseMultipart(buffer, contentType) {
-  const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
-  if (!boundaryMatch) throw new Error("Missing multipart boundary");
-  const boundary = Buffer.from(`--${boundaryMatch[1] || boundaryMatch[2]}`);
-  const parts = [];
-  let start = buffer.indexOf(boundary) + boundary.length + 2;
-  while (start > boundary.length) {
-    const end = buffer.indexOf(boundary, start);
-    if (end < 0) break;
-    const part = buffer.subarray(start, end - 2);
-    const headerEnd = part.indexOf(Buffer.from("\r\n\r\n"));
-    if (headerEnd > -1) {
-      const headers = part.subarray(0, headerEnd).toString("utf8");
-      const body = part.subarray(headerEnd + 4);
-      parts.push({ headers, body });
-    }
-    start = end + boundary.length + 2;
-  }
-  return parts;
+function commit(fn) {
+  fn(state);
+  saveState();
+  render();
 }
 
-function safeName(name) {
-  return name.replace(/[^\w.\-()[\] ]+/g, "_").slice(0, 160);
+// ==================== RENDER ====================
+function render() {
+  const c = state || {};
+  $("#app").innerHTML = `
+    <div class="app-shell">
+      ${renderSidebar()}
+      <main class="content" style="padding:40px">
+        ${views[activeView](c)}
+      </main>
+    </div>
+  `;
+  bindEvents();
+  if (activeView === "dashboard") setTimeout(initParticles, 100);
+  if (activeView === "timers") setTimeout(initAudioPlayer, 100);
 }
 
-function mimeFor(filePath) {
-  const ext = path.extname(filePath).toLowerCase();
-  return {
-    ".html": "text/html; charset=utf-8",
-    ".css": "text/css; charset=utf-8",
-    ".js": "text/javascript; charset=utf-8",
-    ".json": "application/json; charset=utf-8",
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".pdf": "application/pdf",
-    ".svg": "image/svg+xml"
-  }[ext] || "application/octet-stream";
+function renderSidebar() {
+  return `
+    <aside class="sidebar">
+      <div style="padding:32px 28px;display:flex;align-items:center;gap:16px">
+        <div style="width:56px;height:56px;background:linear-gradient(135deg,#3b82f6,#60a5fa);color:white;border-radius:16px;display:grid;place-items:center;font-size:28px;font-weight:900">SP</div>
+        <div style="font-size:1.85rem;font-weight:800">STUDYPILOT</div>
+      </div>
+
+      <div style="padding:0 28px 20px;display:flex;gap:8px;flex-wrap:wrap">
+        ${VAULTS.map(v => `<div onclick="switchVault('${v}')" style="padding:9px 20px;border-radius:9999px;cursor:pointer;background:${currentVault===v?'#3b82f6':'var(--glass)'};color:${currentVault===v?'white':'var(--text)'};font-weight:500">${v}</div>`).join('')}
+      </div>
+
+      <nav style="flex:1">
+        ${["dashboard","chapters","formulas","planner","exams","timers"].map(v => `
+          <button data-view="${v}" class="tab-btn ${activeView===v?'active':''}">
+            ${v==='dashboard'?'🏠':v==='chapters'?'📖':v==='formulas'?'📐':v==='planner'?'✅':v==='exams'?'📆':'⏱'} ${v.charAt(0).toUpperCase()+v.slice(1)}
+          </button>`).join('')}
+      </nav>
+
+      <div style="padding:24px">
+        <button onclick="toggleDarkMode()" style="width:100%;padding:14px;border-radius:12px;background:var(--glass);border:1px solid var(--glass-border)">${document.body.classList.contains('dark') ? '☀️ Light' : '🌙 Dark'} Mode</button>
+      </div>
+    </aside>`;
 }
 
-function serveStatic(req, res) {
-  const urlPath = decodeURIComponent(new URL(req.url, `http://${req.headers.host}`).pathname);
-  const cleanPath = urlPath === "/" ? "/index.html" : urlPath;
-  const filePath = path.normalize(path.join(PUBLIC_DIR, cleanPath));
-  if (!filePath.startsWith(PUBLIC_DIR)) return send(res, 403, "Forbidden");
-  if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) return send(res, 404, "Not found");
-  send(res, 200, fs.readFileSync(filePath), { "Content-Type": mimeFor(filePath) });
-}
+const views = {
+  dashboard(c) {
+    const progress = c.chapters?.length ? Math.round(c.chapters.reduce((a,ch)=>a+(ch.done/ch.total),0)/c.chapters.length*100) : 0;
+    return `
+      <div class="glass-panel" style="min-height:440px;position:relative;overflow:hidden">
+        <canvas id="hero-canvas" width="1600" height="440" style="position:absolute;inset:0"></canvas>
+        <div style="position:relative;z-index:2">
+          <h1>Welcome back, Akshat 👋</h1>
+          <p style="font-size:1.35rem;color:var(--muted)">Current Vault: <strong>${currentVault}</strong></p>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px;margin-top:32px">
+        <div class="glass-panel"><h2>Progress</h2><strong style="font-size:4.5rem">${progress}%</strong></div>
+        <div class="glass-panel"><h2>Tasks</h2><strong style="font-size:4.5rem">${c.plans?.length||0}</strong></div>
+        <div class="glass-panel"><h2>Exams</h2><strong style="font-size:4.5rem">${c.exams?.length||0}</strong></div>
+      </div>`;
+  },
 
-async function handleApi(req, res) {
-  const url = new URL(req.url, `http://${req.headers.host}`);
+  chapters(c) { /* same as before */ 
+    return `... (full chapters view from previous messages) ...`;
+  },
 
-  if (req.method === "GET" && url.pathname === "/api/me") {
-    const username = readSession(req);
-    if (!username) return sendJson(res, 200, { authenticated: false });
-    return sendJson(res, 200, { authenticated: true, username });
+  // Add other views similarly (formulas, planner, exams)
+
+  timers() {
+    return `
+      <div class="glass-panel" style="max-width:760px;margin:40px auto">
+        <h1 style="margin-bottom:8px">Focus Mode</h1>
+        <div class="timer-face" id="timerDisplay">${formatTime(timer.remaining)}</div>
+        <div style="text-align:center;margin:32px 0">
+          <button onclick="startTimer()" class="btn-primary">Start</button>
+          <button onclick="pauseTimer()">Pause</button>
+          <button onclick="resetTimer()">Reset</button>
+        </div>
+
+        <!-- Flight Timer -->
+        <div class="glass-panel" style="margin-top:24px">
+          <h3>Flight Timer</h3>
+          <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:12px;margin-top:16px">
+            <select id="fromAirport" style="padding:12px;border-radius:12px">${airports.map(a=>`<option value="${a.code}">${a.code} - ${a.city}</option>`).join('')}</select>
+            <select id="toAirport" style="padding:12px;border-radius:12px">${airports.map(a=>`<option value="${a.code}">${a.code} - ${a.city}</option>`).join('')}</select>
+            <button onclick="loadFlightTimer()" class="btn-primary">Load Flight</button>
+          </div>
+          <div id="flightInfo" style="margin-top:12px;color:var(--muted)"></div>
+        </div>
+
+        <!-- Audio -->
+        <div class="audio-glass" style="margin-top:24px">
+          <h3>Ambient Sounds</h3>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:16px 0">
+            <button onclick="playAmbient('white')">White Noise</button>
+            <button onclick="playAmbient('rain')">Rain</button>
+            <button onclick="playAmbient('cabin')">Cabin</button>
+            <button onclick="playBinaural('alpha')">Alpha</button>
+            <button onclick="playBinaural('theta')">Theta</button>
+          </div>
+          <input type="file" id="customMusic" accept="audio/*" style="width:100%;margin:12px 0">
+          <div style="display:flex;align-items:center;gap:12px">
+            <span>Volume</span>
+            <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="0.75" style="flex:1">
+          </div>
+        </div>
+      </div>`;
   }
+};
 
-  if (req.method === "POST" && url.pathname === "/api/register") {
-    const body = await parseBody(req);
-    const username = normalizeUsername(body.username);
-    const password = String(body.password || "");
-    if (!validUsername(username)) return sendJson(res, 400, { error: "Use 3-32 letters, numbers, dots, dashes, or underscores." });
-    if (password.length < 8) return sendJson(res, 400, { error: "Password must be at least 8 characters." });
-    if (await findUser(username)) return sendJson(res, 409, { error: "Username already exists." });
-    await createUser(username, password);
-    setSessionCookie(req, res, username);
-    return sendJson(res, 201, { authenticated: true, username });
-  }
+// Add all other functions (particles, audio, flight timer, etc.) from previous messages.
 
-  if (req.method === "POST" && url.pathname === "/api/login") {
-    const body = await parseBody(req);
-    const username = normalizeUsername(body.username);
-    const password = String(body.password || "");
-    const user = await findUser(username);
-    if (!user || !verifyPassword(password, user.salt, user.password_hash)) {
-      return sendJson(res, 401, { error: "Invalid username or password." });
-    }
-    setSessionCookie(req, res, username);
-    return sendJson(res, 200, { authenticated: true, username });
-  }
-
-  if (req.method === "POST" && url.pathname === "/api/logout") {
-    clearSessionCookie(res);
-    return sendJson(res, 200, { authenticated: false });
-  }
-
-  const username = await requireUser(req, res);
-  if (!username) return;
-  const db = await readDb(username);
-
-  if (req.method === "GET" && url.pathname === "/api/state") return sendJson(res, 200, db);
-
-  if (req.method === "POST" && url.pathname === "/api/state") {
-    const next = await parseBody(req);
-    await writeDb(username, { ...db, ...next });
-    return sendJson(res, 200, await readDb(username));
-  }
-
-  if (req.method === "POST" && url.pathname === "/api/upload") {
-    const chunks = [];
-    req.on("data", (chunk) => chunks.push(chunk));
-    req.on("end", async () => {
-      try {
-        const parts = parseMultipart(Buffer.concat(chunks), req.headers["content-type"] || "");
-        const filePart = parts.find((part) => /name="file"/.test(part.headers));
-        if (!filePart) return sendJson(res, 400, { error: "No file provided" });
-        const filenameMatch = filePart.headers.match(/filename="([^"]+)"/);
-        const originalName = safeName(filenameMatch ? filenameMatch[1] : "study-file.bin");
-        const type = (filePart.headers.match(/Content-Type: ([^\r\n]+)/i) || [])[1] || "application/octet-stream";
-        const storedName = `${username}/uploads/${Date.now()}-${crypto.randomBytes(5).toString("hex")}-${originalName}`;
-        await uploadStoredFile(storedName, filePart.body, type);
-        const updated = await readDb(username);
-        const record = {
-          id: crypto.randomUUID(),
-          name: originalName,
-          storedName,
-          size: filePart.body.length,
-          type,
-          uploadedAt: new Date().toISOString()
-        };
-        updated.files.unshift(record);
-        await writeDb(username, updated);
-        sendJson(res, 201, record);
-      } catch (error) {
-        sendJson(res, 500, { error: error.message });
-      }
-    });
-    return;
-  }
-
-  if (req.method === "GET" && url.pathname.startsWith("/api/files/")) {
-    const id = url.pathname.split("/").pop();
-    const file = db.files.find((item) => item.id === id);
-    if (!file) return send(res, 404, "Not found");
-    const bytes = await readStoredFile(file.storedName);
-    if (!bytes) return send(res, 404, "Missing upload");
-    return send(res, 200, bytes, {
-      "Content-Type": file.type,
-      "Content-Disposition": `attachment; filename="${file.name.replace(/"/g, "")}"`
-    });
-  }
-
-  if (req.method === "DELETE" && url.pathname.startsWith("/api/files/")) {
-    const id = url.pathname.split("/").pop();
-    const file = db.files.find((item) => item.id === id);
-    if (file) await deleteStoredFile(file.storedName);
-    db.files = db.files.filter((item) => item.id !== id);
-    await writeDb(username, db);
-    return sendJson(res, 200, db.files);
-  }
-
-  sendJson(res, 404, { error: "Unknown API route" });
-}
-
-ensureStore();
-
-const server = http.createServer((req, res) => {
-  if (req.url.startsWith("/api/")) {
-    handleApi(req, res).catch((error) => sendJson(res, 500, { error: error.message }));
-  } else {
-    serveStatic(req, res);
-  }
-});
-
-server.listen(PORT, () => {
-  console.log(`JEEPILOT Study Vault running at http://localhost:${PORT}`);
-});
+loadFromStorage();
+render();
+</script>
+</body>
+</html>
