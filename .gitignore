@@ -2,6 +2,7 @@ node_modules/
 .env
 .DS_Store
 Thumbs.db
+.runtime/
 
 # Local study data generated while using the app.
 data/db.json

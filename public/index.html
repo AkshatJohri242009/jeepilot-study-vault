@@ -1,77 +1,13 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>STUDYPILOT • Student OS</title>
-<style>
-:root {
-  --bg: linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 100%);
-  --glass: rgba(255,255,255,0.92);
-  --glass-border: rgba(255,255,255,0.98);
-  --text: #0f172a;
-  --muted: #64748b;
-  --accent: #3b82f6;
-  --red: #ef4444;
-  --radius: 22px;
-}
-body.dark {
-  --bg: linear-gradient(135deg, #1e2937 0%, #0f172a 100%);
-  --glass: rgba(15,23,42,0.95);
-  --glass-border: rgba(148,163,184,0.35);
-  --text: #f1f5f9;
-  --muted: #94a3b8;
-}
-
-* { box-sizing: border-box; }
-body {
-  margin: 0;
-  font-family: 'Inter', system-ui, sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  min-height: 100vh;
-}
-
-.app-shell { display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; }
-
-.glass-panel {
-  background: var(--glass);
-  backdrop-filter: blur(32px);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius);
-  padding: 28px;
-}
-</style>
-</head>
-<body>
-<div id="app">Loading Studypilot...</div>
-
-<script>
-const $ = s => document.querySelector(s);
-
-let currentVault = "JEE";
-let activeView = "dashboard";
-let state = { chapters: [], exams: [], plans: [], formulas: [] };
-
-async function loadState() {
-  try {
-    const res = await fetch("/api/state");
-    if (res.ok) state = await res.json();
-  } catch (e) {}
-  render();
-}
-
-function render() {
-  $("#app").innerHTML = `
-    <div style="padding:40px">
-      <h1>Welcome to Studypilot</h1>
-      <p>Current Vault: <strong>${currentVault}</strong></p>
-      <button onclick="alert('Flight timer ready!')">Test Flight Timer</button>
-    </div>
-  `;
-}
-
-loadState();
-</script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Studypilot Student OS</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script src="/app.js" defer></script>
+  </body>
 </html>

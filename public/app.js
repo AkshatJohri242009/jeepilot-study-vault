@@ -1,498 +1,752 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>STUDYPILOT • Student OS</title>
-<style>
-:root {
-  --bg: linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 100%);
-  --glass: rgba(255,255,255,0.92);
-  --glass-border: rgba(255,255,255,0.98);
-  --text: #0f172a;
-  --muted: #64748b;
-  --accent: #3b82f6;
-  --red: #ef4444;
-  --radius: 22px;
-}
-body.dark {
-  --bg: linear-gradient(135deg, #1e2937 0%, #0f172a 100%);
-  --glass: rgba(15,23,42,0.95);
-  --glass-border: rgba(148,163,184,0.35);
-  --text: #f1f5f9;
-  --muted: #94a3b8;
-}
+const $ = (selector, root = document) => root.querySelector(selector);
+const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
-* { box-sizing: border-box; }
-body {
-  margin:0; font-family:Inter,system-ui,sans-serif; background:var(--bg); color:var(--text); min-height:100vh;
-}
-
-.app-shell { display:grid; grid-template-columns:280px 1fr; min-height:100vh; }
-.sidebar {
-  background:var(--glass); backdrop-filter:blur(32px); border-right:1px solid var(--glass-border);
-  display:flex; flex-direction:column;
-}
-.glass-panel {
-  background:var(--glass); backdrop-filter:blur(32px); border:1px solid var(--glass-border);
-  border-radius:var(--radius); padding:28px; box-shadow:0 10px 30px -10px rgba(0,0,0,0.12);
-  animation:fadeInUp 0.6s ease forwards;
-}
-.audio-glass { backdrop-filter:blur(40px); padding:26px; }
-
-.timer-face {
-  font-size:6.2rem; font-weight:800; letter-spacing:10px; text-align:center;
-  padding:52px 20px; background:rgba(255,255,255,0.45); border:5px solid var(--accent);
-  border-radius:28px; animation:pulse 6s infinite ease-in-out;
-}
-body.dark .timer-face { background:rgba(15,23,42,0.8); }
-
-@keyframes fadeInUp { from{opacity:0;transform:translateY(40px)} to{opacity:1;transform:translateY(0)} }
-@keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(59,130,246,0.4)} 50%{box-shadow:0 0 0 35px rgba(59,130,246,0)} }
-
-.tab-btn {
-  width:100%; padding:16px 28px; border:none; background:transparent; color:var(--muted);
-  font-weight:600; display:flex; align-items:center; gap:14px; cursor:pointer;
-  border-radius:14px; margin:4px 12px; transition:all 0.3s;
-}
-.tab-btn.active, .tab-btn:hover { background:rgba(59,130,246,0.15); color:var(--accent); transform:translateX(8px); }
-
-.btn-primary {
-  background:linear-gradient(135deg,#2563eb,#3b82f6); color:white; border:none;
-  padding:13px 28px; border-radius:14px; font-weight:600; cursor:pointer;
-  transition:all 0.3s;
-}
-.btn-primary:hover { transform:translateY(-4px); box-shadow:0 15px 30px rgba(59,130,246,0.4); }
-</style>
-</head>
-<body>
-<div id="app"></div>
-
-<script>
-const $ = (s,r=document) => r.querySelector(s);
-const $$ = (s,r=document) => [...r.querySelectorAll(s)];
-
-const VAULTS = ["JEE","NEET","Boards"];
-let currentVault = "JEE";
-let activeView = "dashboard";
-
-let state = { JEE:{}, NEET:{}, Boards:{} };
-
-let timer = {total:45*60, remaining:45*60, running:false};
-let timerInterval = null;
-let audio = {player:null, ctx:null};
-
+const subjects = ["Physics", "Chemistry", "Math"];
 const airports = [
-  ["DEL","Delhi","India",28.5562,77.1],["BOM","Mumbai","India",19.0896,72.8656],
-  ["BLR","Bengaluru","India",13.1986,77.7066],["MAA","Chennai","India",12.9941,80.1709],
-  ["CCU","Kolkata","India",22.6547,88.4467],["HYD","Hyderabad","India",17.2403,78.4294],
-  ["DXB","Dubai","UAE",25.2532,55.3657],["LHR","London","UK",51.47,-0.4543],
-  ["JFK","New York","USA",40.6413,-73.7781],["SIN","Singapore","Singapore",1.3644,103.9915]
-].map(([code,city,country,lat,lon])=>({code,city,country,lat,lon}));
+  ["DEL", "Delhi", "India", 28.5562, 77.1],
+  ["BOM", "Mumbai", "India", 19.0896, 72.8656],
+  ["BLR", "Bengaluru", "India", 13.1986, 77.7066],
+  ["MAA", "Chennai", "India", 12.9941, 80.1709],
+  ["HYD", "Hyderabad", "India", 17.2403, 78.4294],
+  ["DXB", "Dubai", "UAE", 25.2532, 55.3657],
+  ["LHR", "London Heathrow", "UK", 51.47, -0.4543],
+  ["JFK", "New York JFK", "USA", 40.6413, -73.7781],
+  ["SIN", "Singapore", "Singapore", 1.3644, 103.9915]
+].map(([code, city, country, lat, lon]) => ({ code, city, country, lat, lon }));
 
-function loadFromStorage() {
-  const saved = localStorage.getItem("studypilot_data");
-  if (saved) {
-    const data = JSON.parse(saved);
-    state = data.state || state;
-    currentVault = data.currentVault || "JEE";
-  } else {
-    state.JEE = {
-      chapters: [{id:"c1",subject:"Physics",name:"Kinematics",done:6,total:8}],
-      exams: [{id:"e1",name:"JEE Main Attempt 1",date:"2026-01-20"}],
-      plans: [{title:"Complete Kinematics problems",done:false}],
-      formulas: [{title:"Kinematics Equations",subject:"Physics",content:"v = u + at\ns = ut + ½at²"}]
-    };
+let state = null;
+let currentUser = null;
+let authMode = "login";
+let activeView = "dashboard";
+let activeSubject = "Physics";
+let timer = { total: 45 * 60, remaining: 45 * 60, running: false };
+let timerInterval = null;
+let saveTimer = null;
+let audio = { ctx: null, nodes: [] };
+
+const navItems = [
+  ["dashboard", "Dashboard"],
+  ["chapters", "Chapters"],
+  ["formulas", "Formula Sheets"],
+  ["schedule", "Schedule"],
+  ["exams", "Exams"],
+  ["notes", "Notes"],
+  ["stats", "Stats"],
+  ["timers", "Timers"]
+];
+
+async function boot() {
+  const me = await fetch("/api/me");
+  const profile = await me.json();
+  if (!profile.authenticated) {
+    renderAuth();
+    return;
   }
-}
-
-function saveToStorage() {
-  localStorage.setItem("studypilot_data", JSON.stringify({state, currentVault}));
-}
-
-function commit(fn) {
-  fn(state[currentVault]);
-  saveToStorage();
+  currentUser = profile.username;
+  await loadState();
   render();
 }
 
-function formatTime(s) {
-  const m = Math.floor(s/60), sec = s%60;
-  return `${m.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`;
-}
-function daysLeft(date) {
-  return Math.max(0, Math.ceil((new Date(date) - new Date()) / 86400000));
-}
-
-function haversine(lat1,lon1,lat2,lon2) {
-  const R = 6371;
-  const dLat = (lat2-lat1)*Math.PI/180;
-  const dLon = (lon2-lon1)*Math.PI/180;
-  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
-  return 2*R*Math.asin(Math.sqrt(a));
+async function loadState() {
+  const res = await fetch("/api/state");
+  if (res.status === 401) {
+    currentUser = null;
+    state = null;
+    renderAuth();
+    return;
+  }
+  state = normalizeState(await res.json());
+  document.body.classList.toggle("dark", !!state.settings.darkMode);
 }
 
-// ==================== RENDER ====================
+function normalizeState(next) {
+  return {
+    settings: { name: currentUser || "pilot", darkMode: false, ...(next.settings || {}) },
+    chapters: next.chapters || [],
+    formulas: next.formulas || [],
+    schedule: next.schedule || next.plans || [],
+    exams: next.exams || [],
+    notes: next.notes || [],
+    stats: {
+      sessions: next.stats?.sessions || [],
+      questions: next.stats?.questions || [],
+      mocks: next.stats?.mocks || [],
+      errors: next.stats?.errors || []
+    }
+  };
+}
+
+function persist() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    fetch("/api/state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(state)
+    });
+  }, 250);
+}
+
+function commit(mutator) {
+  mutator(state);
+  persist();
+  render();
+}
+
+function renderAuth(message = "") {
+  document.body.classList.remove("nav-open");
+  $("#app").innerHTML = `
+    <main class="auth-shell">
+      <canvas class="particle-canvas" data-particles></canvas>
+      <section class="auth-card">
+        <div>
+          <span class="eyebrow">Student OS</span>
+          <h1>${authMode === "login" ? "Sign in" : "Create account"}</h1>
+          <p class="muted">A private study workspace with schedules, formulas, notes, exams, and progress tracking.</p>
+        </div>
+        <form id="authForm" class="field">
+          <label>Username</label>
+          <input name="username" autocomplete="username" placeholder="your_username" required>
+          <label>Password</label>
+          <input name="password" type="password" autocomplete="${authMode === "login" ? "current-password" : "new-password"}" placeholder="8+ characters" required>
+          ${message ? `<p class="auth-message">${escapeHtml(message)}</p>` : ""}
+          <button class="btn primary" type="submit">${authMode === "login" ? "Sign in" : "Create account"}</button>
+        </form>
+        <button class="ghost-link" data-auth-toggle>${authMode === "login" ? "New here? Create an account" : "Already have an account? Sign in"}</button>
+      </section>
+    </main>
+  `;
+  bindAuth();
+  requestAnimationFrame(initParticles);
+}
+
+function bindAuth() {
+  $("[data-auth-toggle]").addEventListener("click", () => {
+    authMode = authMode === "login" ? "register" : "login";
+    renderAuth();
+  });
+  $("#authForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const payload = Object.fromEntries(new FormData(event.target));
+    const res = await fetch(`/api/${authMode === "login" ? "login" : "register"}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      renderAuth(data.error || "Could not sign in.");
+      return;
+    }
+    currentUser = data.username;
+    await loadState();
+    activeView = "dashboard";
+    render();
+  });
+}
+
 function render() {
-  const c = state[currentVault] || {};
   $("#app").innerHTML = `
     <div class="app-shell">
       ${renderSidebar()}
-      <main class="content" style="padding:40px">
-        ${views[activeView](c)}
+      <main class="content">
+        <div class="topbar">
+          <button class="btn mobile-menu" data-mobile-menu>Menu</button>
+          <span class="eyebrow">${todayIso()} / ${escapeHtml(currentUser)}</span>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn" data-dark>${state.settings.darkMode ? "Light" : "Dark"} mode</button>
+          </div>
+        </div>
+        ${views[activeView]()}
       </main>
     </div>
   `;
-  bindEvents();
-  if (activeView === "dashboard") setTimeout(initParticles, 100);
-  if (activeView === "timers") setTimeout(initAudioPlayer, 100);
+  bindGlobal();
+  if (activeView === "dashboard") requestAnimationFrame(initParticles);
 }
 
 function renderSidebar() {
   return `
     <aside class="sidebar">
-      <div style="padding:32px 28px;display:flex;align-items:center;gap:16px">
-        <div style="width:56px;height:56px;background:linear-gradient(135deg,#3b82f6,#60a5fa);color:white;border-radius:16px;display:grid;place-items:center;font-size:28px;font-weight:900">SP</div>
-        <div style="font-size:1.85rem;font-weight:800">STUDYPILOT</div>
+      <div class="brand">
+        <div class="brand-mark">SP</div>
+        <div>
+          <strong>Studypilot</strong>
+          <div class="small">Student OS</div>
+        </div>
       </div>
-
-      <div style="padding:0 28px 20px;display:flex;gap:8px;flex-wrap:wrap">
-        ${VAULTS.map(v => `<div onclick="switchVault('${v}')" style="padding:9px 20px;border-radius:9999px;cursor:pointer;background:${currentVault===v?'#3b82f6':'var(--glass)'};color:${currentVault===v?'white':'var(--text)'};font-weight:500">${v}</div>`).join('')}
-      </div>
-
-      <nav style="flex:1">
-        ${["dashboard","chapters","formulas","planner","exams","timers"].map(v => `
-          <button data-view="${v}" class="tab-btn ${activeView===v?'active':''}">
-            ${v==='dashboard'?'🏠':v==='chapters'?'📖':v==='formulas'?'📐':v==='planner'?'✅':v==='exams'?'📆':'⏱'} ${v.charAt(0).toUpperCase()+v.slice(1)}
-          </button>`).join('')}
+      <nav class="nav">
+        ${navItems.map(([id, label]) => `<button class="${activeView === id ? "active" : ""}" data-view="${id}">${label}</button>`).join("")}
       </nav>
-
-      <div style="padding:24px">
-        <button onclick="toggleDarkMode()" style="width:100%;padding:14px;border-radius:12px;background:var(--glass);border:1px solid var(--glass-border)">${document.body.classList.contains('dark') ? '☀️ Light' : '🌙 Dark'} Mode</button>
+      <div class="account">
+        <span class="eyebrow">Signed in</span>
+        <strong>${escapeHtml(currentUser)}</strong>
+        <div style="margin-top:12px"><button class="btn" data-logout>Log out</button></div>
       </div>
-    </aside>`;
+    </aside>
+  `;
 }
 
 const views = {
-  dashboard(c) {
-    const progress = c.chapters?.length ? Math.round(c.chapters.reduce((a,ch)=>a+(ch.done/ch.total),0)/c.chapters.length*100) : 0;
+  dashboard() {
+    const totals = getTotals();
     return `
-      <div class="glass-panel" style="min-height:440px;position:relative;overflow:hidden">
-        <canvas id="hero-canvas" width="1600" height="440" style="position:absolute;inset:0"></canvas>
-        <div style="position:relative;z-index:2">
-          <h1>Welcome back, Akshat 👋</h1>
-          <p style="font-size:1.35rem;color:var(--muted)">Current Vault: <strong>${currentVault}</strong></p>
+      <section class="hero">
+        <canvas class="particle-canvas" data-particles></canvas>
+        <div class="hero-content">
+          <span class="eyebrow">Command center</span>
+          <h1>Welcome back,<br>${escapeHtml(currentUser)}.</h1>
+          <p class="muted">Click any card to jump into the panel that controls it.</p>
         </div>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px;margin-top:32px">
-        <div class="glass-panel"><h2>Progress</h2><strong style="font-size:4.5rem">${progress}%</strong></div>
-        <div class="glass-panel"><h2>Tasks</h2><strong style="font-size:4.5rem">${c.plans?.length||0}</strong></div>
-        <div class="glass-panel"><h2>Exams</h2><strong style="font-size:4.5rem">${c.exams?.length||0}</strong></div>
-      </div>`;
-  },
-
-  chapters(c) {
-    return `
-      <div class="glass-panel">
-        <h1 style="margin-bottom:24px">Chapters</h1>
-        <form id="addChapterForm" style="display:grid;grid-template-columns:2fr 1fr auto;gap:12px;margin-bottom:28px">
-          <input id="chName" placeholder="Chapter Name" required>
-          <select id="chSubject"><option>Physics</option><option>Chemistry</option><option>Math</option><option>Biology</option></select>
-          <button type="submit" class="btn-primary">Add Chapter</button>
-        </form>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px">
-          ${c.chapters.map((ch,i) => {
-            const pct = Math.round((ch.done/ch.total)*100);
-            return `
-              <div class="glass-panel">
-                <strong>${ch.name}</strong> <small>(${ch.subject})</small>
-                <div style="height:12px;background:#e2e8f0;border-radius:9999px;margin:16px 0;overflow:hidden">
-                  <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#3b82f6,#60a5fa);transition:width 0.6s"></div>
-                </div>
-                <div style="display:flex;justify-content:space-between">
-                  <span>${ch.done}/${ch.total}</span>
-                  <div>
-                    <button onclick="updateChapter(${i},-1)">–</button>
-                    <button onclick="updateChapter(${i},1)">+</button>
-                  </div>
-                </div>
-              </div>`;
-          }).join('')}
+      </section>
+      <section class="grid four" style="margin-top:16px">
+        <button class="stat-card" data-jump="chapters"><span>Syllabus</span><strong>${totals.chapterPercent}%</strong></button>
+        <button class="stat-card" data-jump="schedule"><span>Today's tasks</span><strong>${totals.todayTasks}</strong></button>
+        <button class="stat-card" data-jump="stats"><span>Current streak</span><strong>${totals.streak}</strong></button>
+        <button class="stat-card" data-jump="exams"><span>Upcoming exams</span><strong>${state.exams.length}</strong></button>
+      </section>
+      <section class="grid two" style="margin-top:16px">
+        <div class="panel">
+          <h2>Subject breakdown</h2>
+          ${renderSubjectBreakdown()}
         </div>
-      </div>`;
-  },
-
-  formulas(c) {
-    return `
-      <div class="glass-panel">
-        <h1 style="margin-bottom:24px">Formula Bank</h1>
-        <form id="addFormulaForm" style="margin-bottom:32px">
-          <input id="fTitle" placeholder="Title" style="width:100%;padding:14px;margin-bottom:12px" required>
-          <select id="fSubject" style="width:100%;padding:14px;margin-bottom:12px">
-            <option>Physics</option><option>Chemistry</option><option>Math</option><option>Biology</option>
-          </select>
-          <textarea id="fContent" rows="6" placeholder="Formulas..." style="width:100%;padding:14px" required></textarea>
-          <button type="submit" class="btn-primary">Save Formula</button>
-        </form>
-        ${c.formulas.map((f,i)=>`
-          <div class="glass-panel" style="margin-bottom:16px">
-            <strong>${f.title}</strong> <small>(${f.subject})</small>
-            <pre style="background:#f8fafc;padding:16px;border-radius:12px;margin:12px 0;white-space:pre-wrap">${f.content}</pre>
-            <button onclick="deleteFormula(${i})" style="color:var(--red)">Delete</button>
-          </div>`).join('')}
-      </div>`;
-  },
-
-  planner(c) {
-    return `
-      <div class="glass-panel">
-        <h1 style="margin-bottom:24px">Daily Planner</h1>
-        <div id="planList">${(c.plans||[]).map((p,i)=>`
-          <div style="display:flex;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid #e2e8f0">
-            <input type="checkbox" ${p.done?'checked':''} onchange="togglePlan(${i})">
-            <span style="${p.done?'text-decoration:line-through;opacity:0.6':''}">${p.title}</span>
-            <button onclick="deletePlan(${i})" style="margin-left:auto;color:var(--red)">×</button>
-          </div>`).join('') || '<p>No tasks yet.</p>'}</div>
-        <form id="addPlanForm" style="margin-top:24px;display:flex;gap:12px">
-          <input id="planInput" placeholder="New task..." style="flex:1;padding:14px" required>
-          <button type="submit" class="btn-primary">Add</button>
-        </form>
-      </div>`;
-  },
-
-  exams(c) {
-    return `
-      <div class="glass-panel">
-        <h1 style="margin-bottom:24px">Exam Schedule</h1>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px">
-          ${(c.exams||[]).map((ex,i)=>`
-            <div class="glass-panel">
-              <strong>${ex.name}</strong><br>
-              <span style="color:var(--muted)">${ex.date} — ${daysLeft(ex.date)} days left</span>
-              <button onclick="deleteExam(${i})" style="float:right;color:var(--red)">Delete</button>
-            </div>`).join('')}
+        <div class="panel">
+          <h2>Upcoming exams</h2>
+          ${renderDashboardExams()}
         </div>
-        <form id="addExamForm" style="margin-top:32px;display:grid;grid-template-columns:2fr 1fr auto;gap:12px">
-          <input id="exName" placeholder="Exam Name" required>
-          <input type="date" id="exDate" required>
-          <button type="submit" class="btn-primary">Add Exam</button>
-        </form>
-      </div>`;
+        <div class="panel">
+          <h2>Study activity</h2>
+          ${renderHeatmap()}
+        </div>
+        <div class="panel">
+          <h2>Quick schedule</h2>
+          ${renderScheduleList(true)}
+        </div>
+      </section>
+    `;
   },
-
+  chapters() {
+    return page("Chapters", "Track subject-wise chapter completion.", `
+      <form id="chapterForm" class="panel form-grid">
+        <div class="field"><label>Chapter</label><input name="name" placeholder="Kinematics" required></div>
+        <div class="field"><label>Subject</label><select name="subject">${subjectOptions()}</select></div>
+        <div class="field"><label>Total topics</label><input name="total" type="number" min="1" value="10"></div>
+        <button class="btn primary" type="submit">Add chapter</button>
+      </form>
+      <div class="tabs">${subjects.map((s) => `<button class="${activeSubject === s ? "active" : ""}" data-subject="${s}">${s}</button>`).join("")}</div>
+      <div class="grid two">${state.chapters.filter((c) => c.subject === activeSubject).map(renderChapter).join("") || empty("No chapters yet.")}</div>
+    `);
+  },
+  formulas() {
+    return page("Formula Sheets", "Save fast-reference formula sheets by subject.", `
+      <form id="formulaForm" class="panel form-grid">
+        <div class="field"><label>Title</label><input name="title" placeholder="Ray optics formulas" required></div>
+        <div class="field"><label>Subject</label><select name="subject">${subjectOptions()}</select></div>
+        <div class="field" style="grid-column:1/-1"><label>Formula sheet</label><textarea name="content" placeholder="Paste formulas, shortcuts, exceptions..." required></textarea></div>
+        <button class="btn primary" type="submit">Save sheet</button>
+      </form>
+      <div class="grid two">${state.formulas.map(renderFormula).join("") || empty("No formula sheets yet.")}</div>
+    `);
+  },
+  schedule() {
+    return page("Schedule", "Plan classes, study blocks, revision, and breaks.", `
+      <form id="scheduleForm" class="panel form-grid">
+        <div class="field"><label>Task</label><input name="title" placeholder="Revise electrostatics" required></div>
+        <div class="field"><label>Date</label><input name="date" type="date" value="${todayIso()}" required></div>
+        <div class="field"><label>Time</label><input name="time" type="time"></div>
+        <div class="field"><label>Subject</label><select name="subject">${subjectOptions()}<option>General</option></select></div>
+        <div class="field" style="grid-column:1/-1"><label>Remark</label><input name="remark" placeholder="Goal, resource, or constraint"></div>
+        <button class="btn primary" type="submit">Add task</button>
+      </form>
+      ${renderScheduleList(false)}
+    `);
+  },
+  exams() {
+    return page("Exam Scheduler", "Add, edit, or remove upcoming exam dates.", `
+      <form id="examForm" class="panel form-grid">
+        <div class="field"><label>Exam</label><input name="name" placeholder="JEE Main Attempt 1" required></div>
+        <div class="field"><label>Date</label><input name="date" type="date" required></div>
+        <div class="field"><label>Type</label><input name="type" placeholder="Mock / Main / Advanced"></div>
+        <div class="field"><label>Target marks</label><input name="target" type="number" min="0" placeholder="250"></div>
+        <button class="btn primary" type="submit">Add exam</button>
+      </form>
+      <div class="grid two">${state.exams.map(renderExam).join("") || empty("No exams scheduled.")}</div>
+    `);
+  },
+  notes() {
+    return page("Notes", "A lightweight editor for study notes and revision logs.", `
+      <form id="noteForm" class="panel form-grid">
+        <div class="field"><label>Title</label><input name="title" placeholder="Limits revision notes" required></div>
+        <div class="field"><label>Subject</label><select name="subject">${subjectOptions()}<option>General</option></select></div>
+        <div class="field" style="grid-column:1/-1"><label>Note</label><textarea name="content" placeholder="Write your notes here..." required></textarea></div>
+        <button class="btn primary" type="submit">Save note</button>
+      </form>
+      <div class="grid two">${state.notes.map(renderNote).join("") || empty("No notes yet.")}</div>
+    `);
+  },
+  stats() {
+    return page("Stats", "Log questions, mock results, errors, and study sessions.", `
+      <section class="grid three">
+        <div class="stat-card"><span>Questions</span><strong>${sum(state.stats.questions, "count")}</strong></div>
+        <div class="stat-card"><span>Mocks</span><strong>${state.stats.mocks.length}</strong></div>
+        <div class="stat-card"><span>Open errors</span><strong>${state.stats.errors.filter((e) => !e.fixed).length}</strong></div>
+      </section>
+      <section class="grid three" style="margin-top:16px">
+        ${statsForms()}
+      </section>
+      <section class="grid two" style="margin-top:16px">
+        <div class="panel"><h2>Recent mocks</h2>${state.stats.mocks.map((m) => `<p><strong>${escapeHtml(m.exam)}</strong> - ${m.marks} marks<br><span class="muted">${escapeHtml(m.remark || "")}</span></p>`).join("") || empty("No mocks logged.")}</div>
+        <div class="panel"><h2>Error tracker</h2>${state.stats.errors.map((e) => `<p><strong>${escapeHtml(e.subject)}</strong> / ${escapeHtml(e.chapter)}<br>${escapeHtml(e.note)}<br><span class="muted">${escapeHtml(e.remark || "")}</span></p>`).join("") || empty("No errors tracked.")}</div>
+      </section>
+    `);
+  },
   timers() {
-    return `
-      <div class="glass-panel" style="max-width:760px;margin:40px auto">
-        <h1 style="margin-bottom:8px">Focus Mode</h1>
-        <p style="color:var(--muted);margin-bottom:32px">The place where greatness is built.</p>
-        
-        <div class="timer-face" id="timerDisplay">${formatTime(timer.remaining)}</div>
-
-        <div style="text-align:center;margin:32px 0">
-          <button onclick="startTimer()" class="btn-primary" style="font-size:1.1rem;padding:16px 40px">▶ Start Session</button>
-          <button onclick="pauseTimer()" style="margin:0 8px;padding:16px 28px;background:#64748b;color:white;border-radius:12px">Pause</button>
-          <button onclick="resetTimer()" style="padding:16px 28px;background:#ef4444;color:white;border-radius:12px">Reset</button>
-        </div>
-
-        <!-- Flight Timer -->
-        <div class="glass-panel" style="margin-top:24px">
-          <h3>Flight Timer</h3>
-          <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:12px;margin-top:16px">
-            <select id="fromAirport" style="padding:12px;border-radius:12px">
-              ${airports.map(a => `<option value="${a.code}">${a.code} - ${a.city}</option>`).join('')}
-            </select>
-            <select id="toAirport" style="padding:12px;border-radius:12px">
-              ${airports.map(a => `<option value="${a.code}">${a.code} - ${a.city}</option>`).join('')}
-            </select>
-            <button onclick="loadFlightTimer()" class="btn-primary">Load Flight</button>
+    const airportOptions = airports.map((a) => `<option value="${a.code}">${a.code} - ${a.city}</option>`).join("");
+    return page("Timers", "Manual focus timer, flight timer, and browser-generated focus audio.", `
+      <section class="grid two">
+        <div class="panel">
+          <div class="timer-face" id="timerDisplay">${formatTimer(timer.remaining)}</div>
+          <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:16px">
+            <button class="btn primary" data-timer-start>Start</button>
+            <button class="btn" data-timer-pause>Pause</button>
+            <button class="btn" data-timer-reset>Reset</button>
+            <button class="btn" data-log-session>Log session</button>
           </div>
-          <div id="flightInfo" style="margin-top:12px;color:var(--muted)"></div>
+          <form id="manualTimerForm" class="form-grid" style="margin-top:16px">
+            <div class="field"><label>Minutes</label><input name="minutes" type="number" min="1" value="45"></div>
+            <button class="btn primary" type="submit">Load</button>
+          </form>
         </div>
-
-        <!-- Audio -->
-        <div class="audio-glass" style="margin-top:24px">
-          <h3 style="margin-bottom:16px">🎵 Ambient Soundscape</h3>
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:20px">
-            <button onclick="playAmbient('white')" style="padding:12px;border-radius:12px">White Noise</button>
-            <button onclick="playAmbient('rain')" style="padding:12px;border-radius:12px">Rain</button>
-            <button onclick="playAmbient('cabin')" style="padding:12px;border-radius:12px">Cabin</button>
-            <button onclick="playBinaural('alpha')" style="padding:12px;border-radius:12px">Alpha Waves</button>
-            <button onclick="playBinaural('theta')" style="padding:12px;border-radius:12px">Theta Waves</button>
-          </div>
-          <input type="file" id="customMusic" accept="audio/*" style="width:100%;margin-bottom:16px">
-          <div style="display:flex;align-items:center;gap:12px">
-            <span>Volume</span>
-            <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="0.75" style="flex:1">
+        <div class="panel">
+          <h2>Flight timer</h2>
+          <form id="flightForm" class="form-grid">
+            <div class="field"><label>From</label><select name="from">${airportOptions}</select></div>
+            <div class="field"><label>To</label><select name="to">${airportOptions}</select></div>
+            <button class="btn primary" type="submit">Load flight</button>
+          </form>
+          <p class="muted" id="flightInfo"></p>
+          <h2>Focus audio</h2>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn" data-audio="white">White noise</button>
+            <button class="btn" data-audio="rain">Rain</button>
+            <button class="btn" data-audio="focus">Focus pad</button>
+            <button class="btn danger" data-audio-stop>Stop</button>
           </div>
         </div>
-      </div>`;
+      </section>
+    `);
   }
 };
 
-// ==================== PARTICLES & AUDIO & TIMER ====================
-function initParticles() {
-  const canvas = $("#hero-canvas");
-  if (!canvas) return;
-  const ctx = canvas.getContext("2d");
-  canvas.width = 1600; canvas.height = 440;
-  let particles = [];
-  for (let i = 0; i < 120; i++) {
-    particles.push({x:Math.random()*1600, y:Math.random()*440, size:Math.random()*3+1.5, sx:Math.random()*0.8-0.4, sy:Math.random()*0.8-0.4});
-  }
-  function animate() {
-    ctx.clearRect(0,0,1600,440);
-    particles.forEach(p => {
-      p.x += p.sx; p.y += p.sy;
-      if (p.x<0||p.x>1600) p.sx*=-1;
-      if (p.y<0||p.y>440) p.sy*=-1;
-      ctx.fillStyle = "rgba(59,130,246,0.7)";
-      ctx.beginPath(); ctx.arc(p.x,p.y,p.size,0,Math.PI*2); ctx.fill();
-    });
-    requestAnimationFrame(animate);
-  }
-  animate();
+function page(title, copy, body) {
+  return `<section class="page-title"><span class="eyebrow">Studypilot</span><h1>${title}</h1><p>${copy}</p></section>${body}`;
 }
 
-function initAudioPlayer() {
-  const slider = $("#volumeSlider");
-  if (slider) slider.oninput = () => { if(audio.player) audio.player.volume = parseFloat(slider.value); };
-
-  $("#customMusic").onchange = e => {
-    const file = e.target.files[0];
-    if (!file) return;
+function bindGlobal() {
+  $$("[data-view]").forEach((button) => button.addEventListener("click", () => {
+    activeView = button.dataset.view;
+    document.body.classList.remove("nav-open");
+    render();
+  }));
+  $$("[data-jump]").forEach((button) => button.addEventListener("click", () => {
+    activeView = button.dataset.jump;
+    render();
+  }));
+  $("[data-mobile-menu]")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    document.body.classList.add("nav-open");
+  });
+  $(".content")?.addEventListener("click", () => document.body.classList.remove("nav-open"));
+  $("[data-dark]")?.addEventListener("click", () => commit((s) => {
+    s.settings.darkMode = !s.settings.darkMode;
+    document.body.classList.toggle("dark", s.settings.darkMode);
+  }));
+  $("[data-logout]")?.addEventListener("click", async () => {
+    await fetch("/api/logout", { method: "POST" });
     stopAudio();
-    audio.player = new Audio(URL.createObjectURL(file));
-    audio.player.loop = true;
-    audio.player.volume = parseFloat(slider.value);
-    audio.player.play();
+    state = null;
+    currentUser = null;
+    authMode = "login";
+    renderAuth();
+  });
+  bindForms();
+}
+
+function bindForms() {
+  $("#chapterForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.target));
+    commit((s) => s.chapters.push({ id: uid(), name: data.name, subject: data.subject, done: 0, total: Number(data.total || 10) }));
+  });
+  $$("[data-subject]").forEach((button) => button.addEventListener("click", () => {
+    activeSubject = button.dataset.subject;
+    render();
+  }));
+  $$("[data-chapter-step]").forEach((button) => button.addEventListener("click", () => commit((s) => {
+    const ch = s.chapters.find((item) => item.id === button.dataset.chapterStep);
+    ch.done = Math.max(0, Math.min(ch.total, ch.done + Number(button.dataset.step)));
+  })));
+  $$("[data-delete]").forEach((button) => button.addEventListener("click", () => deleteItem(button.dataset.delete, button.dataset.id)));
+  $("#formulaForm")?.addEventListener("submit", submitTo("formulas", (data) => ({ id: uid(), ...data, updatedAt: new Date().toISOString() })));
+  $("#scheduleForm")?.addEventListener("submit", submitTo("schedule", (data) => ({ id: uid(), done: false, ...data })));
+  $("#examForm")?.addEventListener("submit", submitTo("exams", (data) => ({ id: uid(), ...data })));
+  $("#noteForm")?.addEventListener("submit", submitTo("notes", (data) => ({ id: uid(), ...data, updatedAt: new Date().toISOString() })));
+  $$("[data-toggle-task]").forEach((box) => box.addEventListener("change", () => commit((s) => {
+    const item = s.schedule.find((task) => task.id === box.dataset.toggleTask);
+    item.done = box.checked;
+  })));
+  $$("[data-exam-field]").forEach((input) => input.addEventListener("change", () => commit((s) => {
+    const exam = s.exams.find((item) => item.id === input.dataset.id);
+    exam[input.dataset.examField] = input.value;
+  })));
+  $("#questionForm")?.addEventListener("submit", submitStat("questions", (data) => ({ id: uid(), date: todayIso(), ...data, count: Number(data.count || 0) })));
+  $("#mockForm")?.addEventListener("submit", submitStat("mocks", (data) => ({ id: uid(), date: data.date || todayIso(), ...data, marks: Number(data.marks || 0) })));
+  $("#errorForm")?.addEventListener("submit", submitStat("errors", (data) => ({ id: uid(), date: todayIso(), fixed: false, ...data })));
+  bindTimerForms();
+}
+
+function submitTo(collection, mapper) {
+  return (event) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.target));
+    commit((s) => s[collection].unshift(mapper(data)));
   };
 }
 
-window.playAmbient = (type) => {
-  stopAudio();
-  audio.ctx = new (window.AudioContext || window.webkitAudioContext)();
-  const gain = audio.ctx.createGain();
-  gain.gain.value = 0.55;
-  gain.connect(audio.ctx.destination);
+function submitStat(collection, mapper) {
+  return (event) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.target));
+    commit((s) => s.stats[collection].unshift(mapper(data)));
+  };
+}
 
-  const bufferSize = audio.ctx.sampleRate * 4;
-  const buffer = audio.ctx.createBuffer(1, bufferSize, audio.ctx.sampleRate);
-  const data = buffer.getChannelData(0);
+function deleteItem(collection, id) {
+  commit((s) => {
+    s[collection] = s[collection].filter((item) => item.id !== id);
+  });
+}
 
-  for (let i = 0; i < bufferSize; i++) {
-    if (type === 'white') data[i] = Math.random() * 2 - 1;
-    else if (type === 'rain') data[i] = (Math.random() - 0.5) * (i % 70 < 12 ? 1.8 : 0.4);
-    else if (type === 'cabin') data[i] = (Math.random() - 0.5) * 0.65 + Math.sin(i/250)*0.2;
+function bindTimerForms() {
+  $("#manualTimerForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const minutes = Number(new FormData(event.target).get("minutes"));
+    timer.total = minutes * 60;
+    timer.remaining = timer.total;
+    timer.running = false;
+    updateTimer();
+  });
+  $("#flightForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.target));
+    const from = airports.find((a) => a.code === data.from);
+    const to = airports.find((a) => a.code === data.to);
+    const km = haversine(from.lat, from.lon, to.lat, to.lon);
+    const minutes = Math.round(Math.max(30, (km / 840) * 60 + 35));
+    timer.total = minutes * 60;
+    timer.remaining = timer.total;
+    $("#flightInfo").textContent = `${from.code} to ${to.code}: ${Math.round(km)} km, ${minutes} minutes.`;
+    updateTimer();
+  });
+  $("[data-timer-start]")?.addEventListener("click", startTimer);
+  $("[data-timer-pause]")?.addEventListener("click", pauseTimer);
+  $("[data-timer-reset]")?.addEventListener("click", () => {
+    pauseTimer();
+    timer.remaining = timer.total;
+    updateTimer();
+  });
+  $("[data-log-session]")?.addEventListener("click", () => {
+    const minutes = Math.max(1, Math.round((timer.total - timer.remaining) / 60));
+    commit((s) => s.stats.sessions.push({ id: uid(), date: todayIso(), minutes }));
+  });
+  $$("[data-audio]").forEach((button) => button.addEventListener("click", () => startAudio(button.dataset.audio)));
+  $("[data-audio-stop]")?.addEventListener("click", stopAudio);
+}
+
+function renderChapter(chapter) {
+  const pct = Math.round((chapter.done / Math.max(1, chapter.total)) * 100);
+  return `
+    <article class="list-card">
+      <header><div><strong>${escapeHtml(chapter.name)}</strong><br><span class="pill">${chapter.subject}</span></div><button class="btn danger" data-delete="chapters" data-id="${chapter.id}">Remove</button></header>
+      <div class="progress" style="margin:14px 0"><span style="width:${pct}%"></span></div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span class="muted">${chapter.done}/${chapter.total} topics / ${pct}%</span>
+        <span><button class="btn" data-chapter-step="${chapter.id}" data-step="-1">-</button> <button class="btn" data-chapter-step="${chapter.id}" data-step="1">+</button></span>
+      </div>
+    </article>
+  `;
+}
+
+function renderFormula(item) {
+  return `
+    <article class="list-card">
+      <header><div><strong>${escapeHtml(item.title)}</strong><br><span class="pill">${item.subject}</span></div><button class="btn danger" data-delete="formulas" data-id="${item.id}">Remove</button></header>
+      <pre style="white-space:pre-wrap;font-family:inherit;line-height:1.6">${escapeHtml(item.content)}</pre>
+    </article>
+  `;
+}
+
+function renderScheduleList(compact) {
+  const items = [...state.schedule].sort((a, b) => `${a.date || ""}${a.time || ""}`.localeCompare(`${b.date || ""}${b.time || ""}`));
+  const visible = compact ? items.slice(0, 5) : items;
+  return `<div class="list">${visible.map((item) => `
+    <article class="list-card">
+      <header>
+        <label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" ${item.done ? "checked" : ""} data-toggle-task="${item.id}"><span><strong>${escapeHtml(item.title)}</strong><br><span class="muted">${item.date || ""} ${item.time || ""} / ${item.subject || "General"}</span><br><span class="muted">${escapeHtml(item.remark || "")}</span></span></label>
+        <button class="btn danger" data-delete="schedule" data-id="${item.id}">Remove</button>
+      </header>
+    </article>`).join("") || empty("No schedule items yet.")}</div>`;
+}
+
+function renderExam(item) {
+  return `
+    <article class="list-card">
+      <header><strong>${escapeHtml(item.name)}</strong><button class="btn danger" data-delete="exams" data-id="${item.id}">Remove</button></header>
+      <div class="form-grid" style="margin-top:12px">
+        <div class="field"><label>Date</label><input type="date" value="${item.date || ""}" data-exam-field="date" data-id="${item.id}"></div>
+        <div class="field"><label>Type</label><input value="${escapeHtml(item.type || "")}" data-exam-field="type" data-id="${item.id}"></div>
+        <div class="field"><label>Target</label><input type="number" value="${item.target || ""}" data-exam-field="target" data-id="${item.id}"></div>
+      </div>
+      <p class="muted">${daysLeft(item.date)} days left</p>
+    </article>
+  `;
+}
+
+function renderDashboardExams() {
+  return `<div class="list">${state.exams.slice(0, 4).map(renderExam).join("") || empty("No upcoming exams. Add one in Exams.")}</div>`;
+}
+
+function renderNote(item) {
+  return `
+    <article class="list-card">
+      <header><div><strong>${escapeHtml(item.title)}</strong><br><span class="pill">${item.subject}</span></div><button class="btn danger" data-delete="notes" data-id="${item.id}">Remove</button></header>
+      <p style="white-space:pre-wrap;line-height:1.6">${escapeHtml(item.content)}</p>
+    </article>
+  `;
+}
+
+function renderSubjectBreakdown() {
+  return subjects.map((subject) => {
+    const chapters = state.chapters.filter((item) => item.subject === subject);
+    const done = chapters.reduce((total, item) => total + item.done, 0);
+    const all = chapters.reduce((total, item) => total + item.total, 0);
+    const pct = Math.round((done / Math.max(1, all)) * 100);
+    return `<div style="margin:14px 0"><strong>${subject}</strong><div class="progress" style="margin:8px 0"><span style="width:${pct}%"></span></div><span class="muted">${pct}% complete</span></div>`;
+  }).join("");
+}
+
+function renderHeatmap() {
+  const byDate = new Map();
+  state.stats.sessions.forEach((s) => byDate.set(s.date, (byDate.get(s.date) || 0) + Number(s.minutes || 0)));
+  const cells = [];
+  const now = new Date();
+  for (let i = 90; i >= 0; i -= 1) {
+    const d = new Date(now);
+    d.setDate(now.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    const minutes = byDate.get(key) || 0;
+    const level = minutes === 0 ? 0 : minutes < 45 ? 1 : minutes < 90 ? 2 : minutes < 150 ? 3 : 4;
+    cells.push(`<div class="heat-cell level-${level}" title="${key}: ${minutes} min"></div>`);
   }
+  return `<div class="heatmap">${cells.join("")}</div>`;
+}
 
-  const source = audio.ctx.createBufferSource();
-  source.buffer = buffer;
-  source.loop = true;
-  source.connect(gain);
-  source.start();
-  audio.player = source;
-};
+function statsForms() {
+  return `
+    <form id="questionForm" class="panel field"><h2>Questions</h2><label>Subject</label><select name="subject">${subjectOptions()}</select><label>Count</label><input name="count" type="number" min="1" required><label>Remark</label><input name="remark" placeholder="PYQ, module, weak area"><button class="btn primary">Log</button></form>
+    <form id="mockForm" class="panel field"><h2>Mock</h2><label>Exam</label><input name="exam" required><label>Date</label><input name="date" type="date" value="${todayIso()}"><label>Marks</label><input name="marks" type="number" min="0" max="300"><label>Remark</label><input name="remark" placeholder="What to fix next"><button class="btn primary">Log</button></form>
+    <form id="errorForm" class="panel field"><h2>Error</h2><label>Subject</label><select name="subject">${subjectOptions()}</select><label>Chapter</label><input name="chapter" required><label>Error</label><input name="note" required><label>Remark</label><input name="remark" placeholder="Prevention rule"><button class="btn primary">Track</button></form>
+  `;
+}
 
-window.playBinaural = (type) => {
-  stopAudio();
-  audio.ctx = new (window.AudioContext || window.webkitAudioContext)();
-  const gain = audio.ctx.createGain();
-  gain.gain.value = 0.55;
-  gain.connect(audio.ctx.destination);
+function getTotals() {
+  const done = state.chapters.reduce((total, item) => total + item.done, 0);
+  const all = state.chapters.reduce((total, item) => total + item.total, 0);
+  return {
+    chapterPercent: Math.round((done / Math.max(1, all)) * 100),
+    todayTasks: state.schedule.filter((item) => item.date === todayIso()).length,
+    streak: getStreak()
+  };
+}
 
-  const o1 = audio.ctx.createOscillator();
-  const o2 = audio.ctx.createOscillator();
-  o1.type = o2.type = 'sine';
-  o1.frequency.value = type === 'alpha' ? 200 : 180;
-  o2.frequency.value = type === 'alpha' ? 210 : 194;
-  o1.connect(gain); o2.connect(gain);
-  o1.start(); o2.start();
-  audio.player = { pause: () => { o1.stop(); o2.stop(); } };
-};
-
-window.stopAudio = () => {
-  if (audio.player) {
-    if (audio.ctx) audio.ctx.close();
-    else if (audio.player.pause) audio.player.pause();
+function getStreak() {
+  const active = new Set(state.stats.sessions.filter((s) => Number(s.minutes) > 0).map((s) => s.date));
+  let streak = 0;
+  const date = new Date();
+  while (active.has(date.toISOString().slice(0, 10))) {
+    streak += 1;
+    date.setDate(date.getDate() - 1);
   }
-};
+  return streak;
+}
 
-window.loadFlightTimer = () => {
-  const fromCode = $("#fromAirport").value;
-  const toCode = $("#toAirport").value;
-  const from = airports.find(a => a.code === fromCode);
-  const to = airports.find(a => a.code === toCode);
-
-  if (!from || !to) return;
-
-  const km = haversine(from.lat, from.lon, to.lat, to.lon);
-  const minutes = Math.round(Math.max(30, (km / 840) * 60 + 35));
-  const seconds = minutes * 60;
-
-  timer.total = timer.remaining = seconds;
-  timer.running = false;
-  if (timerInterval) clearInterval(timerInterval);
-
-  const info = $("#flightInfo");
-  if (info) info.innerHTML = `<strong>${from.code} → ${to.code}</strong> • ${Math.round(km)} km • ${minutes} minutes`;
-
-  const el = $("#timerDisplay");
-  if (el) el.textContent = formatTime(seconds);
-};
+function initParticles() {
+  $$("[data-particles]").forEach((canvas) => {
+    if (canvas.dataset.ready) return;
+    canvas.dataset.ready = "true";
+    const parent = canvas.parentElement;
+    const ctx = canvas.getContext("2d");
+    const pointer = { x: 0.5, y: 0.5, active: false };
+    const particles = Array.from({ length: 90 }, () => ({ x: Math.random(), y: Math.random(), vx: 0, vy: 0, z: Math.random() }));
+    const resize = () => {
+      const rect = parent.getBoundingClientRect();
+      canvas.width = rect.width * devicePixelRatio;
+      canvas.height = rect.height * devicePixelRatio;
+      canvas.style.width = `${rect.width}px`;
+      canvas.style.height = `${rect.height}px`;
+      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    };
+    parent.addEventListener("pointermove", (event) => {
+      const rect = canvas.getBoundingClientRect();
+      pointer.x = (event.clientX - rect.left) / rect.width;
+      pointer.y = (event.clientY - rect.top) / rect.height;
+      pointer.active = true;
+    });
+    parent.addEventListener("pointerleave", () => pointer.active = false);
+    window.addEventListener("resize", resize);
+    resize();
+    const draw = () => {
+      if (!canvas.isConnected) return;
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      ctx.clearRect(0, 0, width, height);
+      particles.forEach((p, i) => {
+        const targetX = pointer.active ? pointer.x : 0.5 + Math.cos(performance.now() * 0.0004) * 0.12;
+        const targetY = pointer.active ? pointer.y : 0.5 + Math.sin(performance.now() * 0.0004) * 0.12;
+        p.vx += (targetX - p.x) * 0.0007 + Math.sin(i + performance.now() * 0.001) * 0.00008;
+        p.vy += (targetY - p.y) * 0.0007 + Math.cos(i + performance.now() * 0.001) * 0.00008;
+        p.vx *= 0.96;
+        p.vy *= 0.96;
+        p.x = (p.x + p.vx + 1) % 1;
+        p.y = (p.y + p.vy + 1) % 1;
+      });
+      for (let i = 0; i < particles.length; i += 1) {
+        const a = particles[i];
+        const ax = a.x * width;
+        const ay = a.y * height;
+        for (let j = i + 1; j < particles.length; j += 1) {
+          const b = particles[j];
+          const bx = b.x * width;
+          const by = b.y * height;
+          const d = Math.hypot(ax - bx, ay - by);
+          if (d < 110) {
+            ctx.strokeStyle = `rgba(37,99,235,${0.22 * (1 - d / 110)})`;
+            ctx.beginPath();
+            ctx.moveTo(ax, ay);
+            ctx.lineTo(bx, by);
+            ctx.stroke();
+          }
+        }
+        ctx.fillStyle = "rgba(37,99,235,0.68)";
+        ctx.beginPath();
+        ctx.arc(ax, ay, 1.7 + a.z * 2.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      requestAnimationFrame(draw);
+    };
+    draw();
+  });
+}
 
 function startTimer() {
   if (timer.running) return;
   timer.running = true;
   timerInterval = setInterval(() => {
-    timer.remaining--;
-    const el = $("#timerDisplay");
-    if (el) el.textContent = formatTime(timer.remaining);
-    if (timer.remaining <= 0) { pauseTimer(); alert("🎉 Great session!"); }
+    timer.remaining = Math.max(0, timer.remaining - 1);
+    updateTimer();
+    if (timer.remaining === 0) pauseTimer();
   }, 1000);
 }
-function pauseTimer() { clearInterval(timerInterval); timer.running = false; }
-function resetTimer() { pauseTimer(); timer.remaining = timer.total; const el = $("#timerDisplay"); if(el) el.textContent = formatTime(timer.remaining); }
 
-function toggleDarkMode() {
-  document.body.classList.toggle('dark');
-  render();
+function pauseTimer() {
+  timer.running = false;
+  clearInterval(timerInterval);
 }
 
-function switchVault(v) {
-  currentVault = v;
-  saveToStorage();
-  render();
+function updateTimer() {
+  const el = $("#timerDisplay");
+  if (el) el.textContent = formatTimer(timer.remaining);
 }
 
-function bindEvents() {
-  $$("[data-view]").forEach(btn => btn.addEventListener("click", () => {
-    activeView = btn.dataset.view;
-    render();
-  }));
-
-  $("#addChapterForm")?.addEventListener("submit", e => { e.preventDefault(); commit(s => s.chapters.push({id:Date.now(),subject:$("#chSubject").value,name:$("#chName").value,done:0,total:10})); e.target.reset(); });
-  $("#addFormulaForm")?.addEventListener("submit", e => { e.preventDefault(); commit(s => s.formulas.push({title:$("#fTitle").value,subject:$("#fSubject").value,content:$("#fContent").value})); e.target.reset(); });
-  $("#addPlanForm")?.addEventListener("submit", e => { e.preventDefault(); commit(s => s.plans.push({title:$("#planInput").value,done:false})); $("#planInput").value = ""; });
-  $("#addExamForm")?.addEventListener("submit", e => { e.preventDefault(); commit(s => s.exams.push({id:Date.now(),name:$("#exName").value,date:$("#exDate").value})); e.target.reset(); });
+function startAudio(mode) {
+  stopAudio();
+  audio.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const gain = audio.ctx.createGain();
+  gain.gain.value = 0.18;
+  gain.connect(audio.ctx.destination);
+  if (mode === "focus") {
+    [174, 261, 329].forEach((freq) => {
+      const osc = audio.ctx.createOscillator();
+      osc.frequency.value = freq;
+      osc.connect(gain);
+      osc.start();
+      audio.nodes.push(osc);
+    });
+    return;
+  }
+  const buffer = audio.ctx.createBuffer(1, audio.ctx.sampleRate * 2, audio.ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < data.length; i += 1) data[i] = (Math.random() * 2 - 1) * (mode === "rain" && i % 90 < 8 ? 1 : 0.35);
+  const source = audio.ctx.createBufferSource();
+  source.buffer = buffer;
+  source.loop = true;
+  source.connect(gain);
+  source.start();
+  audio.nodes.push(source);
 }
 
-window.switchVault = switchVault;
-window.toggleDarkMode = toggleDarkMode;
-window.updateChapter = (i,d) => commit(s => { const ch = s.chapters[i]; ch.done = Math.max(0, Math.min(ch.total, ch.done + d)); });
-window.deleteFormula = i => commit(s => s.formulas.splice(i,1));
-window.togglePlan = i => commit(s => s.plans[i].done = !s.plans[i].done);
-window.deletePlan = i => commit(s => s.plans.splice(i,1));
-window.deleteExam = i => { if(confirm("Delete exam?")) commit(s => s.exams.splice(i,1)); };
-window.startTimer = startTimer;
-window.pauseTimer = pauseTimer;
-window.resetTimer = resetTimer;
-window.playBinaural = playBinaural;
-window.stopAudio = stopAudio;
-window.playAmbient = playAmbient;
-window.loadFlightTimer = loadFlightTimer;
+function stopAudio() {
+  audio.nodes.forEach((node) => {
+    try { node.stop(); } catch {}
+    try { node.disconnect(); } catch {}
+  });
+  if (audio.ctx) audio.ctx.close();
+  audio = { ctx: null, nodes: [] };
+}
 
-loadFromStorage();
-render();
-</script>
-</body>
-</html>
+function subjectOptions() {
+  return subjects.map((s) => `<option>${s}</option>`).join("");
+}
+
+function empty(text) {
+  return `<p class="muted">${text}</p>`;
+}
+
+function daysLeft(date) {
+  if (!date) return "-";
+  return Math.max(0, Math.ceil((new Date(`${date}T00:00:00`) - new Date()) / 86400000));
+}
+
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const toRad = (n) => n * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function formatTimer(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return h ? [h, m, s].map((n) => String(n).padStart(2, "0")).join(":") : [m, s].map((n) => String(n).padStart(2, "0")).join(":");
+}
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function uid() {
+  return crypto.randomUUID();
+}
+
+function sum(items, key) {
+  return items.reduce((total, item) => total + Number(item[key] || 0), 0);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[ch]));
+}
+
+boot();
